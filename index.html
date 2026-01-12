@@ -1,1541 +1,316 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DICOM ROI Analyzer</title>
-    <meta name="description" content="DICOM ROI分析工具 - 拖曳資料夾分析DICOM影像並選擇輸出的標籤">
-    <script src="https://unpkg.com/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #4f46e5;
-            --primary-hover: #4338ca;
-            --secondary: #0284c7;
-            --accent: #d97706;
-            --success: #059669;
-            --danger: #dc2626;
-            --bg-main: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-input: #f1f5f9;
-            --text-primary: #1e293b;
-            --text-secondary: #475569;
-            --text-muted: #94a3b8;
-            --border: #e2e8f0;
-            --border-focus: #4f46e5;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-main);
-            color: var(--text-primary);
-            min-height: 100vh;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 2.5rem;
-        }
-
-        h1 {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--primary);
-            margin-bottom: 0.5rem;
-        }
-
-        .subtitle {
-            color: var(--text-secondary);
-            font-size: 1rem;
-            font-weight: 400;
-        }
-
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-        }
-
-        @media (max-width: 1024px) {
-            .main-content {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.5rem;
-        }
-
-        .card-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--text-primary);
-        }
-
-        .card-title .icon {
-            font-size: 1.25rem;
-        }
-
-        /* Drop Zone */
-        .drop-zone {
-            border: 2px dashed var(--border);
-            border-radius: 8px;
-            padding: 3rem 2rem;
-            text-align: center;
-            cursor: pointer;
-            background: var(--bg-input);
-        }
-
-        .drop-zone:hover,
-        .drop-zone.dragover {
-            border-color: var(--primary);
-            background: #eef2ff;
-        }
-
-        .drop-zone .icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            display: block;
-        }
-
-        .drop-zone p {
-            color: var(--text-secondary);
-            font-size: 1rem;
-        }
-
-        .drop-zone small {
-            color: var(--text-muted);
-            display: block;
-            margin-top: 0.5rem;
-        }
-
-        /* Settings Section */
-        .settings-group {
-            margin-bottom: 1.5rem;
-        }
-
-        .settings-group label {
-            display: block;
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-            color: var(--text-secondary);
-        }
-
-        .input-group {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        input[type="number"],
-        input[type="text"] {
-            flex: 1;
-            padding: 0.75rem 1rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 1rem;
-            font-family: inherit;
-            transition: all 0.2s ease;
-        }
-
-        input[type="number"]:focus,
-        input[type="text"]:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-        }
-
-        .unit {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-        }
-
-        /* Button Styles */
-        .btn {
-            padding: 0.75rem 1.5rem;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 500;
-            font-family: inherit;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            border: none;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-        }
-
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            background: var(--primary-hover);
-        }
-
-        .btn-success {
-            background: var(--success);
-            color: white;
-        }
-
-        .btn-success:hover:not(:disabled) {
-            background: #047857;
-        }
-
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-        }
-
-        .btn-danger:hover:not(:disabled) {
-            background: #b91c1c;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .btn-group {
-            display: flex;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-
-        /* Progress Bar */
-        .progress-container {
-            margin-top: 1.5rem;
-            display: none;
-        }
-
-        .progress-container.active {
-            display: block;
-        }
-
-        .progress-bar {
-            height: 6px;
-            background: var(--bg-input);
-            border-radius: 3px;
-            overflow: hidden;
-            margin-bottom: 0.5rem;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: var(--primary);
-            border-radius: 3px;
-            width: 0%;
-        }
-
-        .progress-text {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            text-align: center;
-        }
-
-        /* File List */
-        .file-list {
-            max-height: 200px;
-            overflow-y: auto;
-            margin-top: 1rem;
-            border-radius: 6px;
-            background: var(--bg-input);
-            padding: 0.5rem;
-            border: 1px solid var(--border);
-        }
-
-        .file-list::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .file-list::-webkit-scrollbar-track {
-            background: var(--bg-input);
-            border-radius: 3px;
-        }
-
-        .file-list::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 3px;
-        }
-
-        .file-item {
-            padding: 0.5rem 0.75rem;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .file-item:last-child {
-            border-bottom: none;
-        }
-
-        .file-item .status {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--text-muted);
-        }
-
-        .file-item .status.success {
-            background: var(--success);
-        }
-
-        .file-item .status.error {
-            background: var(--danger);
-        }
-
-        /* Canvas Container */
-        .canvas-container {
-            position: relative;
-            background: var(--bg-input);
-            border-radius: 6px;
-            overflow: hidden;
-            margin-top: 1rem;
-            min-height: 400px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: 1px solid var(--border);
-        }
-
-        #dicomCanvas {
-            max-width: 100%;
-            max-height: 500px;
-            display: block;
-            cursor: crosshair;
-        }
-
-        .canvas-placeholder {
-            color: var(--text-muted);
-            text-align: center;
-            padding: 2rem;
-        }
-
-        .canvas-placeholder .icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-        }
-
-        /* Image Navigation */
-        .image-nav {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-
-        .nav-btn {
-            width: 36px;
-            height: 36px;
-            border-radius: 6px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            color: var(--text-primary);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1rem;
-        }
-
-        .nav-btn:hover:not(:disabled) {
-            background: var(--primary);
-            border-color: var(--primary);
-            color: white;
-        }
-
-        .nav-btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        .image-counter {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            min-width: 100px;
-            text-align: center;
-        }
-
-        /* ROI Info */
-        .roi-info {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 0.75rem;
-            margin-top: 1rem;
-        }
-
-        .roi-stat {
-            background: var(--bg-input);
-            padding: 0.75rem;
-            border-radius: 6px;
-            text-align: center;
-            border: 1px solid var(--border);
-        }
-
-        .roi-stat .value {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: var(--primary);
-        }
-
-        .roi-stat .label {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 0.25rem;
-            text-transform: uppercase;
-        }
-
-        /* Tag Selection */
-        .tag-section {
-            grid-column: 1 / -1;
-        }
-
-        .tag-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 0.5rem;
-            max-height: 300px;
-            overflow-y: auto;
-            padding: 1rem;
-            background: var(--bg-input);
-            border-radius: 6px;
-            border: 1px solid var(--border);
-        }
-
-        .tag-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        .tag-item:hover {
-            background: var(--bg-card);
-        }
-
-        .tag-item input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--primary);
-            cursor: pointer;
-        }
-
-        .tag-item label {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            cursor: pointer;
-            flex: 1;
-        }
-
-        .tag-actions {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .tag-actions button {
-            padding: 0.5rem 1rem;
-            font-size: 0.875rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            border-radius: 6px;
-            cursor: pointer;
-        }
-
-        .tag-actions button:hover {
-            background: var(--primary);
-            border-color: var(--primary);
-            color: white;
-        }
-
-        /* Results Table */
-        .results-section {
-            grid-column: 1 / -1;
-            margin-top: 1rem;
-        }
-
-        .table-container {
-            overflow-x: auto;
-            border-radius: 6px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.875rem;
-        }
-
-        th,
-        td {
-            padding: 0.75rem 1rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-
-        th {
-            background: var(--bg-input);
-            color: var(--text-primary);
-            font-weight: 600;
-            white-space: nowrap;
-            position: sticky;
-            top: 0;
-        }
-
-        tr:hover td {
-            background: var(--bg-input);
-        }
-
-        td {
-            color: var(--text-secondary);
-        }
-
-        /* Toast Notification */
-        .toast {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            padding: 0.875rem 1.25rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text-primary);
-            font-size: 0.875rem;
-            transform: translateX(120%);
-            transition: transform 0.2s ease;
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .toast.show {
-            transform: translateX(0);
-        }
-
-        .toast.success {
-            border-left: 3px solid var(--success);
-        }
-
-        .toast.error {
-            border-left: 3px solid var(--danger);
-        }
-
-        /* Instructions Panel */
-        .instructions {
-            background: #fffbeb;
-            border: 1px solid #fcd34d;
-            border-radius: 6px;
-            padding: 1rem;
-            margin-top: 1rem;
-        }
-
-        .instructions h4 {
-            color: var(--accent);
-            font-size: 0.875rem;
-            margin-bottom: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .instructions ol {
-            padding-left: 1.25rem;
-            color: var(--text-secondary);
-            font-size: 0.825rem;
-            line-height: 1.6;
-        }
-
-        /* Hidden file input */
-        #folderInput {
-            display: none;
-        }
-
-        /* Export Modal */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-
-        .modal-overlay.active {
-            display: flex;
-        }
-
-        .modal {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.5rem;
-            max-width: 700px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-
-        .modal h2 {
-            margin-bottom: 1.25rem;
-            font-size: 1.25rem;
-            color: var(--text-primary);
-        }
-
-        .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.75rem;
-            margin-top: 1.5rem;
-            padding-top: 1.25rem;
-            border-top: 1px solid var(--border);
-        }
-    </style>
-</head>
-
-<body>
-    <div class="container">
-        <header>
-            <h1>🔬 DICOM ROI Analyzer</h1>
-            <p class="subtitle">拖曳資料夾 → 選擇 ROI → 選擇輸出標籤 → 匯出 CSV</p>
-            <p
-                style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--success); display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-                🔒 隱私保護：所有資料僅在您的瀏覽器本地處理，不會上傳至任何伺服器
-            </p>
-        </header>
-
-        <div class="main-content">
-            <!-- Left Panel: File Input & Settings -->
-            <div class="card">
-                <h3 class="card-title"><span class="icon">📁</span> 載入 DICOM 檔案</h3>
-
-                <div class="drop-zone" id="dropZone">
-                    <span class="icon">📂</span>
-                    <p>拖曳資料夾到這裡</p>
-                    <small>或點擊選擇資料夾</small>
-                </div>
-                <input type="file" id="folderInput" webkitdirectory directory multiple>
-
-                <div class="progress-container" id="progressContainer">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill"></div>
-                    </div>
-                    <p class="progress-text" id="progressText">準備中...</p>
-                </div>
-
-                <div class="file-list" id="fileList" style="display: none;">
-                    <!-- Files will be listed here -->
-                </div>
-
-                <div class="settings-group" style="margin-top: 1.5rem;">
-                    <label for="roiRadius">ROI 半徑</label>
-                    <div class="input-group">
-                        <input type="number" id="roiRadius" value="25" min="1" max="200">
-                        <span class="unit">像素</span>
-                    </div>
-                </div>
-
-                <div class="instructions">
-                    <h4>💡 操作說明</h4>
-                    <ol>
-                        <li>拖曳包含 DICOM 檔案的資料夾</li>
-                        <li>使用 ◀ ▶ 按鈕切換影像</li>
-                        <li>在影像上點擊設定 ROI 圓心</li>
-                        <li>點擊「分析全部」進行批次處理</li>
-                        <li>選擇要輸出的 DICOM 標籤</li>
-                        <li>下載 CSV 報告</li>
-                    </ol>
-                </div>
-            </div>
-
-            <!-- Right Panel: Image Viewer -->
-            <div class="card">
-                <h3 class="card-title"><span class="icon">🖼️</span> 影像檢視器</h3>
-
-                <div class="canvas-container" id="canvasContainer">
-                    <div class="canvas-placeholder" id="placeholder">
-                        <span class="icon">🩻</span>
-                        <p>載入 DICOM 檔案後顯示影像</p>
-                    </div>
-                    <canvas id="dicomCanvas" style="display: none;"></canvas>
-                </div>
-
-                <div class="image-nav" id="imageNav" style="display: none;">
-                    <button class="nav-btn" id="prevBtn" disabled>◀</button>
-                    <span class="image-counter" id="imageCounter">1 / 1</span>
-                    <button class="nav-btn" id="nextBtn" disabled>▶</button>
-                </div>
-
-                <div class="roi-info" id="roiInfo" style="display: none;">
-                    <div class="roi-stat">
-                        <div class="value" id="roiX">-</div>
-                        <div class="label">ROI X</div>
-                    </div>
-                    <div class="roi-stat">
-                        <div class="value" id="roiY">-</div>
-                        <div class="label">ROI Y</div>
-                    </div>
-                    <div class="roi-stat">
-                        <div class="value" id="roiMean">-</div>
-                        <div class="label">平均值</div>
-                    </div>
-                </div>
-
-                <div class="btn-group" style="margin-top: 1.5rem; justify-content: center;">
-                    <button class="btn btn-primary" id="analyzeBtn" disabled>
-                        ⚡ 分析全部影像
-                    </button>
-                    <button class="btn btn-success" id="exportBtn" disabled>
-                        📥 選擇標籤並匯出
-                    </button>
-                    <button class="btn btn-danger" id="clearBtn">
-                        🗑️ 清除
-                    </button>
-                </div>
-            </div>
-
-            <!-- Results Section -->
-            <div class="results-section card" id="resultsSection" style="display: none;">
-                <h3 class="card-title"><span class="icon">📊</span> 分析結果</h3>
-                <div class="table-container">
-                    <table id="resultsTable">
-                        <thead id="tableHead"></thead>
-                        <tbody id="tableBody"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Export Modal -->
-    <div class="modal-overlay" id="exportModal">
-        <div class="modal">
-            <h2>📋 選擇要輸出的 DICOM 標籤</h2>
-
-            <div class="tag-actions">
-                <button id="selectAllTags">全選</button>
-                <button id="deselectAllTags">取消全選</button>
-                <button id="selectDefaultTags">預設選項</button>
-            </div>
-
-            <div class="tag-grid" id="tagGrid">
-                <!-- Tags will be populated here -->
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn" style="background: var(--bg-card-hover);" id="cancelExport">取消</button>
-                <button class="btn btn-success" id="confirmExport">✓ 確認並下載 CSV</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Toast -->
-    <div class="toast" id="toast">
-        <span id="toastIcon">✓</span>
-        <span id="toastMessage">成功</span>
-    </div>
-
-    <script>
-        // ===== Global State =====
-        let dicomFiles = [];
-        let parsedDicoms = [];
-        let currentIndex = 0;
-        let roiCenter = null;
-        let analysisResults = [];
-        let availableTags = new Map();
-
-        // Default tags to select
-        const defaultTags = [
-            'PatientName', 'PatientID', 'FileName',
-            'ROI_Mean', 'ROI_Noise_SD', 'ROI_X', 'ROI_Y', 'ROI_R',
-            'ExposureTime', 'XRayTubeCurrent', 'KVP',
-            'StudyDate', 'Modality', 'Manufacturer'
-        ];
-
-        // Common DICOM tags with their human-readable names
-        const dicomTagNames = {
-            // Patient Information
-            'x00100010': 'PatientName',
-            'x00100020': 'PatientID',
-            'x00100030': 'PatientBirthDate',
-            'x00100040': 'PatientSex',
-            'x00101010': 'PatientAge',
-            'x00101020': 'PatientSize',
-            'x00101030': 'PatientWeight',
-            'x00104000': 'PatientComments',
-
-            // Study Information
-            'x00080020': 'StudyDate',
-            'x00080030': 'StudyTime',
-            'x00080050': 'AccessionNumber',
-            'x00080060': 'Modality',
-            'x00080070': 'Manufacturer',
-            'x00080080': 'InstitutionName',
-            'x00080081': 'InstitutionAddress',
-            'x00080090': 'ReferringPhysicianName',
-            'x00081010': 'StationName',
-            'x00081030': 'StudyDescription',
-            'x0008103E': 'SeriesDescription',
-            'x00081070': 'OperatorName',
-            'x00081090': 'ManufacturerModelName',
-
-            // Acquisition Parameters
-            'x00180015': 'BodyPartExamined',
-            'x00180020': 'ScanningSequence',
-            'x00180021': 'SequenceVariant',
-            'x00180022': 'ScanOptions',
-            'x00180023': 'MRAcquisitionType',
-            'x00180024': 'SequenceName',
-            'x00180050': 'SliceThickness',
-            'x00180060': 'KVP',
-            'x00180080': 'RepetitionTime',
-            'x00180081': 'EchoTime',
-            'x00180082': 'InversionTime',
-            'x00180083': 'NumberOfAverages',
-            'x00180084': 'ImagingFrequency',
-            'x00180085': 'ImagedNucleus',
-            'x00180086': 'EchoNumbers',
-            'x00180087': 'MagneticFieldStrength',
-            'x00180088': 'SpacingBetweenSlices',
-            'x00180089': 'NumberOfPhaseEncodingSteps',
-            'x00180090': 'DataCollectionDiameter',
-            'x00180091': 'EchoTrainLength',
-            'x00180093': 'PercentSampling',
-            'x00180094': 'PercentPhaseFieldOfView',
-            'x00180095': 'PixelBandwidth',
-            'x00181000': 'DeviceSerialNumber',
-            'x00181020': 'SoftwareVersions',
-            'x00181030': 'ProtocolName',
-            'x00181050': 'SpatialResolution',
-            'x00181100': 'DistanceSourceToDetector',
-            'x00181110': 'DistanceSourceToPatient',
-            'x00181150': 'ExposureTime',
-            'x00181151': 'XRayTubeCurrent',
-            'x00181152': 'Exposure',
-            'x00181153': 'ExposureinuAs',
-            'x00181160': 'FilterType',
-            'x00181170': 'GeneratorPower',
-            'x00181190': 'FocalSpots',
-            'x00181200': 'DateOfLastCalibration',
-            'x00181201': 'TimeOfLastCalibration',
-            'x00181210': 'ConvolutionKernel',
-            'x00181260': 'PlateType',
-            'x00181310': 'AcquisitionMatrix',
-            'x00181312': 'InPlanePhaseEncodingDirection',
-            'x00181314': 'FlipAngle',
-            'x00181315': 'VariableFlipAngleFlag',
-            'x00181316': 'SAR',
-            'x00181400': 'AcquisitionDeviceProcessingDescription',
-            'x00181401': 'AcquisitionDeviceProcessingCode',
-            'x00185100': 'PatientPosition',
-            'x00185101': 'ViewPosition',
-
-            // Image Information
-            'x00200010': 'StudyID',
-            'x00200011': 'SeriesNumber',
-            'x00200012': 'AcquisitionNumber',
-            'x00200013': 'InstanceNumber',
-            'x00200020': 'PatientOrientation',
-            'x00200032': 'ImagePositionPatient',
-            'x00200037': 'ImageOrientationPatient',
-            'x00200052': 'FrameOfReferenceUID',
-            'x00201040': 'PositionReferenceIndicator',
-            'x00201041': 'SliceLocation',
-
-            // Pixel Data Information
-            'x00280002': 'SamplesPerPixel',
-            'x00280004': 'PhotometricInterpretation',
-            'x00280010': 'Rows',
-            'x00280011': 'Columns',
-            'x00280030': 'PixelSpacing',
-            'x00280100': 'BitsAllocated',
-            'x00280101': 'BitsStored',
-            'x00280102': 'HighBit',
-            'x00280103': 'PixelRepresentation',
-            'x00280106': 'SmallestImagePixelValue',
-            'x00280107': 'LargestImagePixelValue',
-            'x00281050': 'WindowCenter',
-            'x00281051': 'WindowWidth',
-            'x00281052': 'RescaleIntercept',
-            'x00281053': 'RescaleSlope',
-            'x00281054': 'RescaleType',
-
-            // CT Specific
-            'x00180022': 'ScanOptions',
-            'x00180090': 'DataCollectionDiameter',
-            'x00181120': 'GantryDetectorTilt',
-            'x00181130': 'TableHeight',
-            'x00181140': 'RotationDirection',
-            'x00189306': 'SingleCollimationWidth',
-            'x00189307': 'TotalCollimationWidth',
-            'x00189311': 'SpiralPitchFactor',
-
-            // Dose Information
-            'x00400302': 'EntranceDose',
-            'x00400303': 'EntranceDoseInmGy',
-            'x00400310': 'CommentsOnRadiationDose',
-            'x00400316': 'OrganDose',
-
-            // Additional Common Tags
-            'x00080008': 'ImageType',
-            'x00080016': 'SOPClassUID',
-            'x00080018': 'SOPInstanceUID',
-            'x0008002A': 'AcquisitionDateTime',
-            'x00081048': 'PhysicianOfRecord',
-            'x00081050': 'PerformingPhysicianName',
-            'x00081060': 'NameOfPhysicianReadingStudy',
-            'x00200060': 'Laterality',
-            'x00321060': 'RequestedProcedureDescription',
-            'x00400254': 'PerformedProcedureStepDescription',
-            'x00400275': 'RequestAttributesSequence',
-            'x00081140': 'ReferencedImageSequence'
-        };
-
-        // ===== DOM Elements =====
-        const dropZone = document.getElementById('dropZone');
-        const folderInput = document.getElementById('folderInput');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const fileList = document.getElementById('fileList');
-        const canvas = document.getElementById('dicomCanvas');
-        const ctx = canvas.getContext('2d');
-        const placeholder = document.getElementById('placeholder');
-        const imageNav = document.getElementById('imageNav');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const imageCounter = document.getElementById('imageCounter');
-        const roiInfo = document.getElementById('roiInfo');
-        const analyzeBtn = document.getElementById('analyzeBtn');
-        const exportBtn = document.getElementById('exportBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const resultsSection = document.getElementById('resultsSection');
-        const tableHead = document.getElementById('tableHead');
-        const tableBody = document.getElementById('tableBody');
-        const roiRadiusInput = document.getElementById('roiRadius');
-        const exportModal = document.getElementById('exportModal');
-        const tagGrid = document.getElementById('tagGrid');
-
-        // ===== Event Listeners =====
-        dropZone.addEventListener('click', () => folderInput.click());
-        dropZone.addEventListener('dragover', handleDragOver);
-        dropZone.addEventListener('dragleave', handleDragLeave);
-        dropZone.addEventListener('drop', handleDrop);
-        folderInput.addEventListener('change', handleFileSelect);
-        canvas.addEventListener('click', handleCanvasClick);
-        prevBtn.addEventListener('click', () => navigateImage(-1));
-        nextBtn.addEventListener('click', () => navigateImage(1));
-        analyzeBtn.addEventListener('click', runAnalysis);
-        exportBtn.addEventListener('click', showExportModal);
-        clearBtn.addEventListener('click', clearAll);
-
-        document.getElementById('selectAllTags').addEventListener('click', () => toggleAllTags(true));
-        document.getElementById('deselectAllTags').addEventListener('click', () => toggleAllTags(false));
-        document.getElementById('selectDefaultTags').addEventListener('click', selectDefaultTags);
-        document.getElementById('cancelExport').addEventListener('click', () => exportModal.classList.remove('active'));
-        document.getElementById('confirmExport').addEventListener('click', exportCSV);
-
-        // Keyboard navigation
-        document.addEventListener('keydown', (e) => {
-            if (parsedDicoms.length === 0) return;
-            if (e.key === 'ArrowLeft' || e.key === 'a') navigateImage(-1);
-            if (e.key === 'ArrowRight' || e.key === 'd') navigateImage(1);
-        });
-
-        // ===== Drag & Drop Handlers =====
-        function handleDragOver(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.add('dragover');
-        }
-
-        function handleDragLeave(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.remove('dragover');
-        }
-
-        function handleDrop(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            dropZone.classList.remove('dragover');
-
-            const items = e.dataTransfer.items;
-            const files = [];
-
-            // Handle folder drop
-            const processEntry = async (entry, path = '') => {
-                if (entry.isFile) {
-                    return new Promise((resolve) => {
-                        entry.file(file => {
-                            file.relativePath = path + file.name;
-                            files.push(file);
-                            resolve();
-                        });
-                    });
-                } else if (entry.isDirectory) {
-                    const dirReader = entry.createReader();
-                    return new Promise((resolve) => {
-                        const readEntries = () => {
-                            dirReader.readEntries(async (entries) => {
-                                if (entries.length === 0) {
-                                    resolve();
-                                    return;
-                                }
-                                for (const e of entries) {
-                                    await processEntry(e, path + entry.name + '/');
-                                }
-                                readEntries();
-                            });
-                        };
-                        readEntries();
-                    });
-                }
-            };
-
-            const promises = [];
-            for (let i = 0; i < items.length; i++) {
-                const entry = items[i].webkitGetAsEntry();
-                if (entry) {
-                    promises.push(processEntry(entry));
-                }
-            }
-
-            Promise.all(promises).then(() => {
-                processFiles(files);
-            });
-        }
-
-        function handleFileSelect(e) {
-            const files = Array.from(e.target.files);
-            processFiles(files);
-        }
-
-        // ===== File Processing =====
-        async function processFiles(files) {
-            dicomFiles = [];
-            parsedDicoms = [];
-            availableTags.clear();
-
-            progressContainer.classList.add('active');
-            progressText.textContent = '正在掃描檔案...';
-            progressFill.style.width = '0%';
-
-            let processed = 0;
-            const total = files.length;
-
-            for (const file of files) {
-                try {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const byteArray = new Uint8Array(arrayBuffer);
-
-                    // Try to parse as DICOM
-                    const dataSet = dicomParser.parseDicom(byteArray);
-
-                    // Check if it has pixel data (valid DICOM image)
-                    if (dataSet.elements.x7fe00010) {
-                        dicomFiles.push(file);
-                        parsedDicoms.push({
-                            file: file,
-                            dataSet: dataSet,
-                            byteArray: byteArray
-                        });
-
-                        // Collect available tags
-                        collectTags(dataSet);
-                    }
-                } catch (err) {
-                    // Not a valid DICOM file, skip
-                }
-
-                processed++;
-                const percent = Math.round((processed / total) * 100);
-                progressFill.style.width = percent + '%';
-                progressText.textContent = `掃描中: ${processed} / ${total}`;
-            }
-
-            if (parsedDicoms.length > 0) {
-                showToast(`成功載入 ${parsedDicoms.length} 張 DICOM 影像`, 'success');
-                updateUI();
-                displayImage(0);
-            } else {
-                showToast('未找到有效的 DICOM 檔案', 'error');
-            }
-
-            progressContainer.classList.remove('active');
-        }
-
-        function collectTags(dataSet) {
-            // Add ROI analysis tags
-            availableTags.set('FileName', 'FileName');
-            availableTags.set('ROI_Mean', 'ROI_Mean');
-            availableTags.set('ROI_Noise_SD', 'ROI_Noise_SD');
-            availableTags.set('ROI_X', 'ROI_X');
-            availableTags.set('ROI_Y', 'ROI_Y');
-            availableTags.set('ROI_R', 'ROI_R');
-
-            // Collect DICOM tags - only include tags with human-readable names
-            for (const tag in dataSet.elements) {
-                const tagName = dicomTagNames[tag];
-                // Only add if we have a human-readable name for this tag
-                if (tagName && !availableTags.has(tagName)) {
-                    availableTags.set(tagName, tag);
-                }
-            }
-        }
-
-        // ===== Image Display =====
-        function displayImage(index) {
-            if (index < 0 || index >= parsedDicoms.length) return;
-
-            currentIndex = index;
-            const dicom = parsedDicoms[index];
-            const dataSet = dicom.dataSet;
-
-            try {
-                // Get image dimensions
-                const rows = dataSet.uint16('x00280010');
-                const cols = dataSet.uint16('x00280011');
-                const bitsAllocated = dataSet.uint16('x00280100');
-                const pixelRepresentation = dataSet.uint16('x00280103') || 0;
-                const rescaleSlope = parseFloat(dataSet.string('x00281053')) || 1;
-                const rescaleIntercept = parseFloat(dataSet.string('x00281052')) || 0;
-
-                // Get pixel data
-                const pixelDataElement = dataSet.elements.x7fe00010;
-                const pixelData = new Uint8Array(dicom.byteArray.buffer, pixelDataElement.dataOffset, pixelDataElement.length);
-
-                // Convert to float array for processing
-                let floatPixels;
-                if (bitsAllocated === 16) {
-                    const int16View = pixelRepresentation === 1
-                        ? new Int16Array(pixelData.buffer, pixelData.byteOffset, pixelData.length / 2)
-                        : new Uint16Array(pixelData.buffer, pixelData.byteOffset, pixelData.length / 2);
-                    floatPixels = new Float32Array(int16View.length);
-                    for (let i = 0; i < int16View.length; i++) {
-                        floatPixels[i] = int16View[i] * rescaleSlope + rescaleIntercept;
-                    }
-                } else {
-                    floatPixels = new Float32Array(pixelData.length);
-                    for (let i = 0; i < pixelData.length; i++) {
-                        floatPixels[i] = pixelData[i] * rescaleSlope + rescaleIntercept;
-                    }
-                }
-
-                // Store for ROI analysis
-                dicom.pixelData = floatPixels;
-                dicom.rows = rows;
-                dicom.cols = cols;
-
-                // Normalize for display
-                let min = Infinity, max = -Infinity;
-                for (let i = 0; i < floatPixels.length; i++) {
-                    if (floatPixels[i] < min) min = floatPixels[i];
-                    if (floatPixels[i] > max) max = floatPixels[i];
-                }
-
-                // Create canvas
-                canvas.width = cols;
-                canvas.height = rows;
-                const imageData = ctx.createImageData(cols, rows);
-
-                for (let i = 0; i < floatPixels.length; i++) {
-                    const normalized = Math.floor(((floatPixels[i] - min) / (max - min)) * 255);
-                    imageData.data[i * 4] = normalized;
-                    imageData.data[i * 4 + 1] = normalized;
-                    imageData.data[i * 4 + 2] = normalized;
-                    imageData.data[i * 4 + 3] = 255;
-                }
-
-                ctx.putImageData(imageData, 0, 0);
-
-                // Draw ROI if set
-                if (roiCenter) {
-                    drawROI();
-                }
-
-                placeholder.style.display = 'none';
-                canvas.style.display = 'block';
-
-            } catch (err) {
-                console.error('Error displaying image:', err);
-                showToast('無法顯示此影像', 'error');
-            }
-
-            updateNavigation();
-        }
-
-        function drawROI() {
-            if (!roiCenter) return;
-
-            const radius = parseInt(roiRadiusInput.value) || 25;
-
-            // Redraw image first
-            displayImageWithoutROI();
-
-            // Draw ROI circle
-            ctx.beginPath();
-            ctx.arc(roiCenter.x, roiCenter.y, radius, 0, 2 * Math.PI);
-            ctx.strokeStyle = '#ef4444';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            // Draw crosshair
-            ctx.beginPath();
-            ctx.moveTo(roiCenter.x - 10, roiCenter.y);
-            ctx.lineTo(roiCenter.x + 10, roiCenter.y);
-            ctx.moveTo(roiCenter.x, roiCenter.y - 10);
-            ctx.lineTo(roiCenter.x, roiCenter.y + 10);
-            ctx.strokeStyle = '#ef4444';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            // Update ROI info
-            updateROIInfo();
-        }
-
-        function displayImageWithoutROI() {
-            const dicom = parsedDicoms[currentIndex];
-            if (!dicom.pixelData) return;
-
-            const { pixelData, rows, cols } = dicom;
-
-            let min = Infinity, max = -Infinity;
-            for (let i = 0; i < pixelData.length; i++) {
-                if (pixelData[i] < min) min = pixelData[i];
-                if (pixelData[i] > max) max = pixelData[i];
-            }
-
-            const imageData = ctx.createImageData(cols, rows);
-            for (let i = 0; i < pixelData.length; i++) {
-                const normalized = Math.floor(((pixelData[i] - min) / (max - min)) * 255);
-                imageData.data[i * 4] = normalized;
-                imageData.data[i * 4 + 1] = normalized;
-                imageData.data[i * 4 + 2] = normalized;
-                imageData.data[i * 4 + 3] = 255;
-            }
-
-            ctx.putImageData(imageData, 0, 0);
-        }
-
-        function handleCanvasClick(e) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-
-            roiCenter = {
-                x: Math.round((e.clientX - rect.left) * scaleX),
-                y: Math.round((e.clientY - rect.top) * scaleY)
-            };
-
-            drawROI();
-            analyzeBtn.disabled = false;
-        }
-
-        function updateROIInfo() {
-            if (!roiCenter || !parsedDicoms[currentIndex].pixelData) return;
-
-            const dicom = parsedDicoms[currentIndex];
-            const radius = parseInt(roiRadiusInput.value) || 25;
-
-            // Calculate ROI statistics
-            const pixels = getROIPixels(dicom.pixelData, dicom.cols, dicom.rows, roiCenter.x, roiCenter.y, radius);
-
-            if (pixels.length > 0) {
-                const mean = pixels.reduce((a, b) => a + b, 0) / pixels.length;
-
-                document.getElementById('roiX').textContent = roiCenter.x;
-                document.getElementById('roiY').textContent = roiCenter.y;
-                document.getElementById('roiMean').textContent = mean.toFixed(2);
-                roiInfo.style.display = 'grid';
-            }
-        }
-
-        function getROIPixels(pixelData, cols, rows, cx, cy, radius) {
-            const pixels = [];
-            const r2 = radius * radius;
-
-            for (let y = Math.max(0, cy - radius); y < Math.min(rows, cy + radius); y++) {
-                for (let x = Math.max(0, cx - radius); x < Math.min(cols, cx + radius); x++) {
-                    const dx = x - cx;
-                    const dy = y - cy;
-                    if (dx * dx + dy * dy <= r2) {
-                        pixels.push(pixelData[y * cols + x]);
-                    }
-                }
-            }
-
-            return pixels;
-        }
-
-        // ===== Navigation =====
-        function navigateImage(delta) {
-            const newIndex = currentIndex + delta;
-            if (newIndex >= 0 && newIndex < parsedDicoms.length) {
-                displayImage(newIndex);
-            }
-        }
-
-        function updateNavigation() {
-            imageCounter.textContent = `${currentIndex + 1} / ${parsedDicoms.length}`;
-            prevBtn.disabled = currentIndex === 0;
-            nextBtn.disabled = currentIndex === parsedDicoms.length - 1;
-        }
-
-        function updateUI() {
-            imageNav.style.display = 'flex';
-            prevBtn.disabled = parsedDicoms.length <= 1;
-            nextBtn.disabled = parsedDicoms.length <= 1;
-        }
-
-        // ===== Analysis =====
-        async function runAnalysis() {
-            if (!roiCenter) {
-                showToast('請先在影像上點選 ROI 圓心', 'error');
-                return;
-            }
-
-            progressContainer.classList.add('active');
-            analysisResults = [];
-
-            const radius = parseInt(roiRadiusInput.value) || 25;
-
-            for (let i = 0; i < parsedDicoms.length; i++) {
-                const dicom = parsedDicoms[i];
-                const dataSet = dicom.dataSet;
-
-                progressText.textContent = `分析中: ${i + 1} / ${parsedDicoms.length}`;
-                progressFill.style.width = ((i + 1) / parsedDicoms.length * 100) + '%';
-
-                try {
-                    // Get ROI statistics
-                    const pixels = getROIPixels(dicom.pixelData, dicom.cols, dicom.rows, roiCenter.x, roiCenter.y, radius);
-
-                    if (pixels.length > 0) {
-                        const mean = pixels.reduce((a, b) => a + b, 0) / pixels.length;
-                        const variance = pixels.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / pixels.length;
-                        const std = Math.sqrt(variance);
-
-                        // Build result object
-                        const result = {
-                            FileName: dicom.file.name,
-                            ROI_Mean: mean.toFixed(4),
-                            ROI_Noise_SD: std.toFixed(4),
-                            ROI_X: roiCenter.x,
-                            ROI_Y: roiCenter.y,
-                            ROI_R: radius
-                        };
-
-                        // Add DICOM metadata
-                        for (const [tagName, tagCode] of availableTags) {
-                            if (tagName.startsWith('ROI_') || tagName === 'FileName') continue;
-
-                            try {
-                                let value = dataSet.string(tagCode);
-                                if (value === undefined) {
-                                    // Try other data types
-                                    value = dataSet.uint16(tagCode) || dataSet.int16(tagCode) || dataSet.float(tagCode);
-                                }
-                                result[tagName] = value !== undefined ? value : 'N/A';
-                            } catch {
-                                result[tagName] = 'N/A';
-                            }
-                        }
-
-                        analysisResults.push(result);
-                    }
-                } catch (err) {
-                    console.error('Analysis error:', err);
-                }
-
-                // Allow UI to update
-                await new Promise(resolve => setTimeout(resolve, 10));
-            }
-
-            progressContainer.classList.remove('active');
-
-            if (analysisResults.length > 0) {
-                displayResults();
-                exportBtn.disabled = false;
-                showToast(`分析完成: ${analysisResults.length} 張影像`, 'success');
-            } else {
-                showToast('分析失敗', 'error');
-            }
-        }
-
-        function displayResults() {
-            if (analysisResults.length === 0) return;
-
-            // Default columns to show in preview
-            const previewCols = ['FileName', 'PatientName', 'PatientID', 'ROI_Mean', 'ROI_Noise_SD'];
-            const availableCols = Object.keys(analysisResults[0]).filter(k => previewCols.includes(k) || !availableTags.has(k));
-
-            // Create table header
-            tableHead.innerHTML = '<tr>' + previewCols.map(col => `<th>${col}</th>`).join('') + '</tr>';
-
-            // Create table body
-            tableBody.innerHTML = analysisResults.map(row =>
-                '<tr>' + previewCols.map(col => `<td>${row[col] || 'N/A'}</td>`).join('') + '</tr>'
-            ).join('');
-
-            resultsSection.style.display = 'block';
-        }
-
-        // ===== Export =====
-        function showExportModal() {
-            if (analysisResults.length === 0) return;
-
-            // Populate tag grid
-            tagGrid.innerHTML = '';
-
-            const allTags = Object.keys(analysisResults[0]);
-
-            allTags.forEach(tag => {
-                const isDefault = defaultTags.includes(tag);
-                const div = document.createElement('div');
-                div.className = 'tag-item';
-                div.innerHTML = `
-                    <input type="checkbox" id="tag_${tag}" value="${tag}" ${isDefault ? 'checked' : ''}>
-                    <label for="tag_${tag}">${tag}</label>
-                `;
-                tagGrid.appendChild(div);
-            });
-
-            exportModal.classList.add('active');
-        }
-
-        function toggleAllTags(checked) {
-            tagGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                cb.checked = checked;
-            });
-        }
-
-        function selectDefaultTags() {
-            tagGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                cb.checked = defaultTags.includes(cb.value);
-            });
-        }
-
-        function exportCSV() {
-            const selectedTags = [];
-            tagGrid.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
-                selectedTags.push(cb.value);
-            });
-
-            if (selectedTags.length === 0) {
-                showToast('請至少選擇一個標籤', 'error');
-                return;
-            }
-
-            // Build CSV
-            const headers = selectedTags.join(',');
-            const rows = analysisResults.map(row => {
-                return selectedTags.map(tag => {
-                    let value = row[tag] || '';
-                    // Escape quotes and wrap in quotes if contains comma
-                    if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-                        value = '"' + value.replace(/"/g, '""') + '"';
-                    }
-                    return value;
-                }).join(',');
-            });
-
-            const csv = '\ufeff' + headers + '\n' + rows.join('\n'); // BOM for Excel
-
-            // Download
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'dicom_roi_analysis_' + new Date().toISOString().slice(0, 10) + '.csv';
-            a.click();
-            URL.revokeObjectURL(url);
-
-            exportModal.classList.remove('active');
-            showToast('CSV 檔案已下載', 'success');
-        }
-
-        // ===== Utilities =====
-        function clearAll() {
-            dicomFiles = [];
-            parsedDicoms = [];
-            currentIndex = 0;
-            roiCenter = null;
-            analysisResults = [];
-            availableTags.clear();
-
-            canvas.style.display = 'none';
-            placeholder.style.display = 'flex';
-            imageNav.style.display = 'none';
-            roiInfo.style.display = 'none';
-            resultsSection.style.display = 'none';
-
-            analyzeBtn.disabled = true;
-            exportBtn.disabled = true;
-
-            fileList.innerHTML = '';
-            fileList.style.display = 'none';
-
-            showToast('已清除所有資料', 'success');
-        }
-
-        function showToast(message, type = 'success') {
-            const toast = document.getElementById('toast');
-            const toastIcon = document.getElementById('toastIcon');
-            const toastMessage = document.getElementById('toastMessage');
-
-            toastIcon.textContent = type === 'success' ? '✓' : '✗';
-            toastMessage.textContent = message;
-            toast.className = 'toast ' + type + ' show';
-
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 3000);
-        }
-
-        // ROI radius change handler
-        roiRadiusInput.addEventListener('change', () => {
-            if (roiCenter) {
-                drawROI();
-            }
-        });
-    </script>
-</body>
-
-</html>
+"""
+================================================================================
+DICOM ROI 分析工具 (DICOM ROI Analysis Tool)
+================================================================================
+
+功能說明:
+---------
+此工具用於批次分析 DICOM 醫學影像，提供以下功能:
+1. 互動式 ROI (Region of Interest) 選取
+2. 批次計算 ROI 區域及全影像的統計值 (Mean, SD)
+3. 提取曝光參數 (Exposure Index, KVP, mAs 等)
+4. 匯出分析結果至 CSV 檔案
+
+影像檢視功能:
+-------------
+★ 全螢幕模式: 按 F 鍵可切換全螢幕顯示
+★ Window Width / Window Level 調整:
+  - 滑鼠右鍵按住拖曳可即時調整影像對比與亮度
+  - 水平拖曳 (左右): 調整 Window Width (對比度)
+    → 往右拖曳: 增加 Window Width，降低對比
+    → 往左拖曳: 減少 Window Width，提高對比
+  - 垂直拖曳 (上下): 調整 Window Level (亮度)
+    → 往上拖曳: 增加 Window Level，影像變亮
+    → 往下拖曳: 減少 Window Level，影像變暗
+  - 按 R 鍵可重設 WW/WL 到初始值
+
+鍵盤快捷鍵:
+-----------
+  A / D    : 切換前後影像
+  F        : 切換全螢幕模式
+  R        : 重設 Window Width / Window Level
+  Enter    : 確認 ROI 位置並開始批次分析
+  Q        : 退出程式
+
+滑鼠操作:
+---------
+  左鍵點擊    : 選取 ROI 圓心位置
+  右鍵拖曳    : 調整 Window Width / Window Level
+
+輸出欄位:
+---------
+  - PatientName, PatientID: 病人資訊
+  - ROI_Mean, ROI_Noise_SD: ROI 區域統計值
+  - FullImage_Mean, FullImage_SD: 全影像統計值
+  - ExposureIndex, TargetExposureIndex, DeviationIndex: 曝光指數
+  - ExposureTime_ms, Exposure_mAs, KVP: 曝光參數
+
+================================================================================
+"""
+
+import pydicom
+import cv2
+import numpy as np
+import os
+import pandas as pd
+
+# ================= 設定區 =================
+DICOM_ROOT_FOLDER = r"C:\Users\User\Desktop\PYTHON\Image\DCM" 
+OUTPUT_NAME = "dicom_patient_analysis_report.csv"
+# ==========================================
+
+clicked_center = None
+
+# Window Width / Window Level 相關變數
+window_width = None   # 初始值會從影像自動計算
+window_level = None   # 初始值會從影像自動計算
+right_mouse_down = False
+right_mouse_start = (0, 0)
+initial_ww = 0
+initial_wl = 0
+is_fullscreen = False
+
+def mouse_callback(event, x, y, flags, param):
+    global clicked_center, right_mouse_down, right_mouse_start
+    global window_width, window_level, initial_ww, initial_wl
+    
+    # 左鍵點擊: 選擇 ROI 圓心
+    if event == cv2.EVENT_LBUTTONDOWN:
+        clicked_center = (x, y)
+    
+    # 右鍵按下: 開始調整 WW/WL
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        right_mouse_down = True
+        right_mouse_start = (x, y)
+        initial_ww = window_width if window_width else 400
+        initial_wl = window_level if window_level else 40
+    
+    # 右鍵放開
+    elif event == cv2.EVENT_RBUTTONUP:
+        right_mouse_down = False
+    
+    # 滑鼠移動 (右鍵拖曳調整 WW/WL)
+    elif event == cv2.EVENT_MOUSEMOVE:
+        if right_mouse_down:
+            dx = x - right_mouse_start[0]
+            dy = y - right_mouse_start[1]
+            # 水平拖曳調整 Window Width (對比)
+            window_width = max(1, initial_ww + dx * 2)
+            # 垂直拖曳調整 Window Level (亮度)
+            window_level = initial_wl - dy * 2
+
+def get_real_pixel_data(ds):
+    data = ds.pixel_array.astype(np.float32)
+    if 'RescaleIntercept' in ds and 'RescaleSlope' in ds:
+        data = data * ds.RescaleSlope + ds.RescaleIntercept
+    return data
+
+def run_pure_dicom_analysis():
+    global clicked_center, window_width, window_level, is_fullscreen
+    
+    # 1. 輸入半徑
+    print("\n" + "="*40)
+    try:
+        val = input("請輸入圓形 ROI 的半徑 (像素單位): ")
+        radius = int(val)
+    except:
+        radius = 25
+    print(f"ROI 半徑設定為: {radius}")
+    print("="*40)
+
+    # 2. 掃描資料夾
+    print(f"\n正在掃描資料夾: {DICOM_ROOT_FOLDER} ...")
+    dicom_files = []
+    for root, dirs, files in os.walk(DICOM_ROOT_FOLDER):
+        for f in files:
+            path = os.path.join(root, f)
+            try:
+                ds = pydicom.dcmread(path, stop_before_pixels=True, force=True)
+                if "SOPClassUID" in ds:
+                    dicom_files.append(path)
+            except:
+                continue
+    
+    if not dicom_files:
+        print("錯誤：找不到任何有效的 DICOM 影像。"); return
+    print(f"掃描完成，共發現 {len(dicom_files)} 張影像。")
+
+    # 3. 互動選圖與 UI 顯示姓名
+    idx = 0
+    cv2.namedWindow("ROI Selector", cv2.WINDOW_NORMAL)
+    cv2.setMouseCallback("ROI Selector", mouse_callback)
+    
+    print("\n[操作提示]")
+    print("A / D 鍵: 切換前後影像")
+    print("滑鼠左鍵: 點選圓心位置 (紅色圓圈預覽)")
+    print("滑鼠右鍵拖曳: 調整 Window Width / Window Level")
+    print("F 鍵: 切換全螢幕")
+    print("R 鍵: 重設 Window Width / Window Level")
+    print("Enter 鍵: 確認位置並開始『所有影像』的批次計算")
+    print("Q 鍵: 退出程式")
+
+    last_idx = -1  # 用於追蹤影像切換，重設 WW/WL
+
+    while True:
+        ds = pydicom.dcmread(dicom_files[idx], force=True)
+        pixel_data = get_real_pixel_data(ds)
+        
+        # 取得病人資訊用於 UI 顯示
+        p_name = str(getattr(ds, 'PatientName', 'Unknown'))
+        p_id = str(getattr(ds, 'PatientID', 'N/A'))
+        
+        # 如果是新影像或尚未設定 WW/WL，則自動計算初始值
+        if idx != last_idx or window_width is None or window_level is None:
+            p_min, p_max = np.min(pixel_data), np.max(pixel_data)
+            # 使用 DICOM 標籤中的 WW/WL (如果有的話)
+            if hasattr(ds, 'WindowWidth') and hasattr(ds, 'WindowCenter'):
+                # 處理可能是多值的情況
+                ww = ds.WindowWidth
+                wl = ds.WindowCenter
+                window_width = float(ww[0]) if isinstance(ww, pydicom.multival.MultiValue) else float(ww)
+                window_level = float(wl[0]) if isinstance(wl, pydicom.multival.MultiValue) else float(wl)
+            else:
+                # 自動計算
+                window_width = float(p_max - p_min)
+                window_level = float((p_max + p_min) / 2)
+            last_idx = idx
+        
+        # 使用 WW/WL 進行影像顯示 (Window/Level Mapping)
+        wl = window_level
+        ww = window_width
+        lower = wl - ww / 2
+        upper = wl + ww / 2
+        disp = np.clip((pixel_data - lower) / (upper - lower + 1e-6) * 255, 0, 255).astype(np.uint8)
+        disp_color = cv2.cvtColor(disp, cv2.COLOR_GRAY2BGR)
+
+        if clicked_center:
+            cv2.circle(disp_color, clicked_center, radius, (0, 0, 255), 2)
+            cv2.drawMarker(disp_color, clicked_center, (0, 0, 255), cv2.MARKER_CROSS, 10, 1)
+
+        # 在畫面上方顯示 Patient Name 與 ID
+        info_text_name = f"Patient: {p_name}"
+        info_text_id = f"ID: {p_id}"
+        file_text = f"File: {os.path.basename(dicom_files[idx])} [{idx+1}/{len(dicom_files)}]"
+        ww_wl_text = f"WW: {int(window_width)} | WL: {int(window_level)}"
+        
+        cv2.putText(disp_color, info_text_name, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        cv2.putText(disp_color, info_text_id, (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 1)
+        cv2.putText(disp_color, file_text, (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+        cv2.putText(disp_color, ww_wl_text, (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        cv2.imshow("ROI Selector", disp_color)
+        
+        key = cv2.waitKey(30) & 0xFF
+        if key == ord('d'): idx = (idx + 1) % len(dicom_files)
+        elif key == ord('a'): idx = (idx - 1) % len(dicom_files)
+        elif key == ord('f') or key == ord('F'):
+            # 切換全螢幕
+            is_fullscreen = not is_fullscreen
+            if is_fullscreen:
+                cv2.setWindowProperty("ROI Selector", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            else:
+                cv2.setWindowProperty("ROI Selector", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+        elif key == ord('r') or key == ord('R'):
+            # 重設 WW/WL
+            window_width = None
+            window_level = None
+            last_idx = -1
+        elif key == 13 and clicked_center: break
+        elif key == ord('q'): cv2.destroyAllWindows(); return
+    cv2.destroyAllWindows()
+
+    # 4. 全自動批次提取數據
+    print(f"\n正在進行批次分析 (圓心座標: {clicked_center})...")
+    results = []
+    
+    # 初始化遮罩變數
+    current_mask_shape = None
+    mask_bool = None
+
+    # =========================================================================
+    # 輔助函數：安全讀取 DICOM 標籤 (優先使用 Hex Tag)
+    # 放在迴圈外定義
+    def get_tag_value(dataset, tag_hex, keyword):
+        # 嘗試使用 (Group, Element) Tuple 讀取
+        if tag_hex in dataset:
+            return dataset[tag_hex].value
+        # 嘗試使用整數 Tag 讀取 (某些 pydicom 版本)
+        tag_int = (tag_hex[0] << 16) | tag_hex[1]
+        if tag_int in dataset:
+            return dataset[tag_int].value
+        # 最後嘗試使用關鍵字
+        return getattr(dataset, keyword, 'N/A')
+    # =========================================================================
+
+    for i, path in enumerate(dicom_files):
+        try:
+            ds = pydicom.dcmread(path, force=True)
+            pixel_data = get_real_pixel_data(ds)
+            
+            # 動態檢查並更新遮罩 (處理不同解析度的影像)
+            if mask_bool is None or pixel_data.shape != current_mask_shape:
+                mask = np.zeros(pixel_data.shape, dtype=np.uint8)
+                cv2.circle(mask, clicked_center, radius, 255, -1)
+                mask_bool = (mask == 255)
+                current_mask_shape = pixel_data.shape
+
+            roi_pixels = pixel_data[mask_bool]
+            
+            # 計算整張影像的統計值
+            full_image_mean = round(np.mean(pixel_data), 4)
+            full_image_sd = round(np.std(pixel_data), 4)
+            
+            # 讀取 Exposure Index 相關 DICOM 標籤
+            exposure_index = get_tag_value(ds, (0x0018, 0x1411), 'ExposureIndex')
+            deviation_index = get_tag_value(ds, (0x0018, 0x1413), 'DeviationIndex')
+            target_exposure_index = get_tag_value(ds, (0x0018, 0x1412), 'TargetExposureIndex')
+            
+            # DEBUG: 針對特定檔案印出除錯資訊
+            if "I0000000" in path or exposure_index == 'N/A':
+                print(f"[DEBUG] File: {os.path.basename(path)}")
+                print(f"  - (0018,1411) EI Found: {'Yes' if (0x0018,0x1411) in ds else 'No'}")
+                print(f"  - Extracted EI Value: {exposure_index}")
+            
+            results.append({
+                'PatientName': str(getattr(ds, 'PatientName', 'N/A')),
+                'PatientID': str(getattr(ds, 'PatientID', 'N/A')),
+                'FileName': os.path.basename(path),
+                # ROI 區域統計
+                'ROI_Mean': round(np.mean(roi_pixels), 4),
+                'ROI_Noise_SD': round(np.std(roi_pixels), 4),
+                # 全影像統計
+                'FullImage_Mean': full_image_mean,
+                'FullImage_SD': full_image_sd,
+                # Exposure Index 系列 (標準 EI)
+                'ExposureIndex': exposure_index,
+                'TargetExposureIndex': target_exposure_index,
+                'DeviationIndex': deviation_index,
+                # 曝光參數
+                'ExposureTime_ms': getattr(ds, 'ExposureTime', 'N/A'),
+                'Exposure_mAs': getattr(ds, 'Exposure', 'N/A'),
+                'ExposureInuAs': getattr(ds, 'ExposureInuAs', 'N/A'),
+                'XRayTubeCurrent_mA': getattr(ds, 'XRayTubeCurrent', 'N/A'),
+                'KVP': getattr(ds, 'KVP', 'N/A'),
+                # ROI 位置
+                'ROI_X': clicked_center[0],
+                'ROI_Y': clicked_center[1],
+                'ROI_R': radius
+            })
+            if (i+1) % 10 == 0: print(f"進度: {i+1} / {len(dicom_files)}")
+        except Exception as e:
+            print(f"檔案 {os.path.basename(path)} 分析失敗: {e}")
+
+    # 5. 匯出 CSV
+    df = pd.DataFrame(results)
+    # 將 PatientName 放在最前面一欄
+    cols = ['PatientName', 'PatientID', 'FileName', 'ROI_Mean', 'ROI_Noise_SD'] + \
+           [c for c in df.columns if c not in ['PatientName', 'PatientID', 'FileName', 'ROI_Mean', 'ROI_Noise_SD']]
+    df = df[cols]
+    
+    df.to_csv(OUTPUT_NAME, index=False, encoding='utf-8-sig')
+    print("-" * 40)
+    print(f"分析完成！")
+    print(f"結果已儲存至: {os.path.abspath(OUTPUT_NAME)}")
+
+if __name__ == "__main__":
+    run_pure_dicom_analysis()

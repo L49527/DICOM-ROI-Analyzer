@@ -1,316 +1,215 @@
-"""
-================================================================================
-DICOM ROI 分析工具 (DICOM ROI Analysis Tool)
-================================================================================
+<!DOCTYPE html>
+<html lang="zh-TW">
 
-功能說明:
----------
-此工具用於批次分析 DICOM 醫學影像，提供以下功能:
-1. 互動式 ROI (Region of Interest) 選取
-2. 批次計算 ROI 區域及全影像的統計值 (Mean, SD)
-3. 提取曝光參數 (Exposure Index, KVP, mAs 等)
-4. 匯出分析結果至 CSV 檔案
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DICOM ROI Analyzer 🔬</title>
+    <meta name="description" content="DICOM 影像 ROI 分析工具 - 支援批次分析、Window Width/Level 調整、全螢幕檢視">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
 
-影像檢視功能:
--------------
-★ 全螢幕模式: 按 F 鍵可切換全螢幕顯示
-★ Window Width / Window Level 調整:
-  - 滑鼠右鍵按住拖曳可即時調整影像對比與亮度
-  - 水平拖曳 (左右): 調整 Window Width (對比度)
-    → 往右拖曳: 增加 Window Width，降低對比
-    → 往左拖曳: 減少 Window Width，提高對比
-  - 垂直拖曳 (上下): 調整 Window Level (亮度)
-    → 往上拖曳: 增加 Window Level，影像變亮
-    → 往下拖曳: 減少 Window Level，影像變暗
-  - 按 R 鍵可重設 WW/WL 到初始值
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🔬</span>
+                <h1>DICOM ROI Analyzer</h1>
+            </div>
+            <div class="header-controls">
+                <button id="helpBtn" class="btn btn-ghost" title="使用說明">
+                    <span>❓</span> 說明
+                </button>
+            </div>
+        </header>
 
-鍵盤快捷鍵:
------------
-  A / D    : 切換前後影像
-  F        : 切換全螢幕模式
-  R        : 重設 Window Width / Window Level
-  Enter    : 確認 ROI 位置並開始批次分析
-  Q        : 退出程式
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Drop Zone (Initial State) -->
+            <div id="dropZone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">📂</div>
+                    <h2>拖曳 DICOM 資料夾到此處</h2>
+                    <p>或點擊選擇資料夾</p>
+                    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+                    <button id="selectFolderBtn" class="btn btn-primary">選擇資料夾</button>
+                </div>
+            </div>
 
-滑鼠操作:
----------
-  左鍵點擊    : 選取 ROI 圓心位置
-  右鍵拖曳    : 調整 Window Width / Window Level
+            <!-- Viewer Panel (After Loading) -->
+            <div id="viewerPanel" class="viewer-panel hidden">
+                <!-- Left: Image Viewer -->
+                <div class="image-section">
+                    <div class="image-container" id="imageContainer">
+                        <canvas id="dicomCanvas"></canvas>
+                        <div class="image-overlay">
+                            <div class="overlay-top-left" id="patientInfo"></div>
+                            <div class="overlay-top-right" id="wwwlInfo">WW: -- | WL: --</div>
+                            <div class="overlay-bottom-left" id="fileInfo"></div>
+                            <div class="overlay-bottom-right" id="roiInfo"></div>
+                        </div>
+                        <!-- Fullscreen Button -->
+                        <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)">⛶</button>
+                    </div>
 
-輸出欄位:
----------
-  - PatientName, PatientID: 病人資訊
-  - ROI_Mean, ROI_Noise_SD: ROI 區域統計值
-  - FullImage_Mean, FullImage_SD: 全影像統計值
-  - ExposureIndex, TargetExposureIndex, DeviationIndex: 曝光指數
-  - ExposureTime_ms, Exposure_mAs, KVP: 曝光參數
+                    <!-- Image Navigation -->
+                    <div class="image-nav">
+                        <button id="prevBtn" class="btn btn-icon" title="上一張 (A)">◀</button>
+                        <div class="image-slider-container">
+                            <input type="range" id="imageSlider" min="0" max="0" value="0">
+                            <span id="imageCounter">0 / 0</span>
+                        </div>
+                        <button id="nextBtn" class="btn btn-icon" title="下一張 (D)">▶</button>
+                    </div>
+                </div>
 
-================================================================================
-"""
+                <!-- Right: Controls Panel -->
+                <div class="controls-section">
+                    <!-- ROI Settings -->
+                    <div class="control-card">
+                        <h3>🎯 ROI 設定</h3>
+                        <div class="control-group">
+                            <label>ROI 半徑 (像素)</label>
+                            <div class="input-with-unit">
+                                <input type="number" id="roiRadius" value="25" min="5" max="200">
+                                <span>px</span>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>圓心位置</label>
+                            <div class="position-display">
+                                <span>X: <strong id="roiX">--</strong></span>
+                                <span>Y: <strong id="roiY">--</strong></span>
+                            </div>
+                        </div>
+                        <p class="hint">💡 點擊影像設定 ROI 圓心</p>
+                    </div>
 
-import pydicom
-import cv2
-import numpy as np
-import os
-import pandas as pd
+                    <!-- Window/Level Settings -->
+                    <div class="control-card">
+                        <h3>🎚️ Window/Level</h3>
+                        <div class="control-group">
+                            <label>Window Width</label>
+                            <input type="number" id="windowWidth" value="400">
+                        </div>
+                        <div class="control-group">
+                            <label>Window Level</label>
+                            <input type="number" id="windowLevel" value="40">
+                        </div>
+                        <button id="resetWWWLBtn" class="btn btn-secondary btn-sm">🔄 重設 (R)</button>
+                        <p class="hint">💡 右鍵拖曳調整 WW/WL</p>
+                    </div>
 
-# ================= 設定區 =================
-DICOM_ROOT_FOLDER = r"C:\Users\User\Desktop\PYTHON\Image\DCM" 
-OUTPUT_NAME = "dicom_patient_analysis_report.csv"
-# ==========================================
+                    <!-- Analysis Controls -->
+                    <div class="control-card">
+                        <h3>📊 分析</h3>
+                        <button id="analyzeBtn" class="btn btn-primary btn-block" disabled>
+                            ⚡ 分析全部影像
+                        </button>
+                        <div id="analysisProgress" class="progress-container hidden">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <span id="progressText">0%</span>
+                        </div>
+                    </div>
 
-clicked_center = None
+                    <!-- Export Controls -->
+                    <div class="control-card">
+                        <h3>📥 匯出</h3>
+                        <button id="exportBtn" class="btn btn-success btn-block" disabled>
+                            📥 選擇標籤並匯出
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
 
-# Window Width / Window Level 相關變數
-window_width = None   # 初始值會從影像自動計算
-window_level = None   # 初始值會從影像自動計算
-right_mouse_down = False
-right_mouse_start = (0, 0)
-initial_ww = 0
-initial_wl = 0
-is_fullscreen = False
+        <!-- Help Modal -->
+        <div id="helpModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>📖 使用說明</h2>
+                    <button class="modal-close" id="closeHelpBtn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <h3>🖱️ 滑鼠操作</h3>
+                    <table class="help-table">
+                        <tr>
+                            <td><strong>左鍵點擊</strong></td>
+                            <td>選取 ROI 圓心位置</td>
+                        </tr>
+                        <tr>
+                            <td><strong>右鍵拖曳</strong></td>
+                            <td>調整 Window Width / Level</td>
+                        </tr>
+                    </table>
 
-def mouse_callback(event, x, y, flags, param):
-    global clicked_center, right_mouse_down, right_mouse_start
-    global window_width, window_level, initial_ww, initial_wl
-    
-    # 左鍵點擊: 選擇 ROI 圓心
-    if event == cv2.EVENT_LBUTTONDOWN:
-        clicked_center = (x, y)
-    
-    # 右鍵按下: 開始調整 WW/WL
-    elif event == cv2.EVENT_RBUTTONDOWN:
-        right_mouse_down = True
-        right_mouse_start = (x, y)
-        initial_ww = window_width if window_width else 400
-        initial_wl = window_level if window_level else 40
-    
-    # 右鍵放開
-    elif event == cv2.EVENT_RBUTTONUP:
-        right_mouse_down = False
-    
-    # 滑鼠移動 (右鍵拖曳調整 WW/WL)
-    elif event == cv2.EVENT_MOUSEMOVE:
-        if right_mouse_down:
-            dx = x - right_mouse_start[0]
-            dy = y - right_mouse_start[1]
-            # 水平拖曳調整 Window Width (對比)
-            window_width = max(1, initial_ww + dx * 2)
-            # 垂直拖曳調整 Window Level (亮度)
-            window_level = initial_wl - dy * 2
+                    <h3>⌨️ 鍵盤快捷鍵</h3>
+                    <table class="help-table">
+                        <tr>
+                            <td><kbd>A</kbd> / <kbd>←</kbd></td>
+                            <td>上一張影像</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>D</kbd> / <kbd>→</kbd></td>
+                            <td>下一張影像</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>F</kbd></td>
+                            <td>切換全螢幕模式</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>R</kbd></td>
+                            <td>重設 Window Width / Level</td>
+                        </tr>
+                    </table>
 
-def get_real_pixel_data(ds):
-    data = ds.pixel_array.astype(np.float32)
-    if 'RescaleIntercept' in ds and 'RescaleSlope' in ds:
-        data = data * ds.RescaleSlope + ds.RescaleIntercept
-    return data
+                    <h3>🎚️ Window Width / Level</h3>
+                    <ul>
+                        <li><strong>水平拖曳</strong>：調整 Window Width (對比度)</li>
+                        <li><strong>垂直拖曳</strong>：調整 Window Level (亮度)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
 
-def run_pure_dicom_analysis():
-    global clicked_center, window_width, window_level, is_fullscreen
-    
-    # 1. 輸入半徑
-    print("\n" + "="*40)
-    try:
-        val = input("請輸入圓形 ROI 的半徑 (像素單位): ")
-        radius = int(val)
-    except:
-        radius = 25
-    print(f"ROI 半徑設定為: {radius}")
-    print("="*40)
+        <!-- Tag Selection Modal -->
+        <div id="tagModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>✅ 選擇輸出標籤</h2>
+                    <button class="modal-close" id="closeTagBtn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tag-actions">
+                        <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
+                        <button id="deselectAllTags" class="btn btn-sm btn-secondary">全不選</button>
+                    </div>
+                    <div id="tagList" class="tag-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelExportBtn" class="btn btn-secondary">取消</button>
+                    <button id="confirmExportBtn" class="btn btn-success">📥 匯出 CSV</button>
+                </div>
+            </div>
+        </div>
 
-    # 2. 掃描資料夾
-    print(f"\n正在掃描資料夾: {DICOM_ROOT_FOLDER} ...")
-    dicom_files = []
-    for root, dirs, files in os.walk(DICOM_ROOT_FOLDER):
-        for f in files:
-            path = os.path.join(root, f)
-            try:
-                ds = pydicom.dcmread(path, stop_before_pixels=True, force=True)
-                if "SOPClassUID" in ds:
-                    dicom_files.append(path)
-            except:
-                continue
-    
-    if not dicom_files:
-        print("錯誤：找不到任何有效的 DICOM 影像。"); return
-    print(f"掃描完成，共發現 {len(dicom_files)} 張影像。")
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="loading-spinner"></div>
+            <p id="loadingText">載入中...</p>
+        </div>
+    </div>
 
-    # 3. 互動選圖與 UI 顯示姓名
-    idx = 0
-    cv2.namedWindow("ROI Selector", cv2.WINDOW_NORMAL)
-    cv2.setMouseCallback("ROI Selector", mouse_callback)
-    
-    print("\n[操作提示]")
-    print("A / D 鍵: 切換前後影像")
-    print("滑鼠左鍵: 點選圓心位置 (紅色圓圈預覽)")
-    print("滑鼠右鍵拖曳: 調整 Window Width / Window Level")
-    print("F 鍵: 切換全螢幕")
-    print("R 鍵: 重設 Window Width / Window Level")
-    print("Enter 鍵: 確認位置並開始『所有影像』的批次計算")
-    print("Q 鍵: 退出程式")
+    <script src="https://unpkg.com/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
+    <script src="app.js"></script>
+</body>
 
-    last_idx = -1  # 用於追蹤影像切換，重設 WW/WL
-
-    while True:
-        ds = pydicom.dcmread(dicom_files[idx], force=True)
-        pixel_data = get_real_pixel_data(ds)
-        
-        # 取得病人資訊用於 UI 顯示
-        p_name = str(getattr(ds, 'PatientName', 'Unknown'))
-        p_id = str(getattr(ds, 'PatientID', 'N/A'))
-        
-        # 如果是新影像或尚未設定 WW/WL，則自動計算初始值
-        if idx != last_idx or window_width is None or window_level is None:
-            p_min, p_max = np.min(pixel_data), np.max(pixel_data)
-            # 使用 DICOM 標籤中的 WW/WL (如果有的話)
-            if hasattr(ds, 'WindowWidth') and hasattr(ds, 'WindowCenter'):
-                # 處理可能是多值的情況
-                ww = ds.WindowWidth
-                wl = ds.WindowCenter
-                window_width = float(ww[0]) if isinstance(ww, pydicom.multival.MultiValue) else float(ww)
-                window_level = float(wl[0]) if isinstance(wl, pydicom.multival.MultiValue) else float(wl)
-            else:
-                # 自動計算
-                window_width = float(p_max - p_min)
-                window_level = float((p_max + p_min) / 2)
-            last_idx = idx
-        
-        # 使用 WW/WL 進行影像顯示 (Window/Level Mapping)
-        wl = window_level
-        ww = window_width
-        lower = wl - ww / 2
-        upper = wl + ww / 2
-        disp = np.clip((pixel_data - lower) / (upper - lower + 1e-6) * 255, 0, 255).astype(np.uint8)
-        disp_color = cv2.cvtColor(disp, cv2.COLOR_GRAY2BGR)
-
-        if clicked_center:
-            cv2.circle(disp_color, clicked_center, radius, (0, 0, 255), 2)
-            cv2.drawMarker(disp_color, clicked_center, (0, 0, 255), cv2.MARKER_CROSS, 10, 1)
-
-        # 在畫面上方顯示 Patient Name 與 ID
-        info_text_name = f"Patient: {p_name}"
-        info_text_id = f"ID: {p_id}"
-        file_text = f"File: {os.path.basename(dicom_files[idx])} [{idx+1}/{len(dicom_files)}]"
-        ww_wl_text = f"WW: {int(window_width)} | WL: {int(window_level)}"
-        
-        cv2.putText(disp_color, info_text_name, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-        cv2.putText(disp_color, info_text_id, (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 1)
-        cv2.putText(disp_color, file_text, (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-        cv2.putText(disp_color, ww_wl_text, (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-        cv2.imshow("ROI Selector", disp_color)
-        
-        key = cv2.waitKey(30) & 0xFF
-        if key == ord('d'): idx = (idx + 1) % len(dicom_files)
-        elif key == ord('a'): idx = (idx - 1) % len(dicom_files)
-        elif key == ord('f') or key == ord('F'):
-            # 切換全螢幕
-            is_fullscreen = not is_fullscreen
-            if is_fullscreen:
-                cv2.setWindowProperty("ROI Selector", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            else:
-                cv2.setWindowProperty("ROI Selector", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
-        elif key == ord('r') or key == ord('R'):
-            # 重設 WW/WL
-            window_width = None
-            window_level = None
-            last_idx = -1
-        elif key == 13 and clicked_center: break
-        elif key == ord('q'): cv2.destroyAllWindows(); return
-    cv2.destroyAllWindows()
-
-    # 4. 全自動批次提取數據
-    print(f"\n正在進行批次分析 (圓心座標: {clicked_center})...")
-    results = []
-    
-    # 初始化遮罩變數
-    current_mask_shape = None
-    mask_bool = None
-
-    # =========================================================================
-    # 輔助函數：安全讀取 DICOM 標籤 (優先使用 Hex Tag)
-    # 放在迴圈外定義
-    def get_tag_value(dataset, tag_hex, keyword):
-        # 嘗試使用 (Group, Element) Tuple 讀取
-        if tag_hex in dataset:
-            return dataset[tag_hex].value
-        # 嘗試使用整數 Tag 讀取 (某些 pydicom 版本)
-        tag_int = (tag_hex[0] << 16) | tag_hex[1]
-        if tag_int in dataset:
-            return dataset[tag_int].value
-        # 最後嘗試使用關鍵字
-        return getattr(dataset, keyword, 'N/A')
-    # =========================================================================
-
-    for i, path in enumerate(dicom_files):
-        try:
-            ds = pydicom.dcmread(path, force=True)
-            pixel_data = get_real_pixel_data(ds)
-            
-            # 動態檢查並更新遮罩 (處理不同解析度的影像)
-            if mask_bool is None or pixel_data.shape != current_mask_shape:
-                mask = np.zeros(pixel_data.shape, dtype=np.uint8)
-                cv2.circle(mask, clicked_center, radius, 255, -1)
-                mask_bool = (mask == 255)
-                current_mask_shape = pixel_data.shape
-
-            roi_pixels = pixel_data[mask_bool]
-            
-            # 計算整張影像的統計值
-            full_image_mean = round(np.mean(pixel_data), 4)
-            full_image_sd = round(np.std(pixel_data), 4)
-            
-            # 讀取 Exposure Index 相關 DICOM 標籤
-            exposure_index = get_tag_value(ds, (0x0018, 0x1411), 'ExposureIndex')
-            deviation_index = get_tag_value(ds, (0x0018, 0x1413), 'DeviationIndex')
-            target_exposure_index = get_tag_value(ds, (0x0018, 0x1412), 'TargetExposureIndex')
-            
-            # DEBUG: 針對特定檔案印出除錯資訊
-            if "I0000000" in path or exposure_index == 'N/A':
-                print(f"[DEBUG] File: {os.path.basename(path)}")
-                print(f"  - (0018,1411) EI Found: {'Yes' if (0x0018,0x1411) in ds else 'No'}")
-                print(f"  - Extracted EI Value: {exposure_index}")
-            
-            results.append({
-                'PatientName': str(getattr(ds, 'PatientName', 'N/A')),
-                'PatientID': str(getattr(ds, 'PatientID', 'N/A')),
-                'FileName': os.path.basename(path),
-                # ROI 區域統計
-                'ROI_Mean': round(np.mean(roi_pixels), 4),
-                'ROI_Noise_SD': round(np.std(roi_pixels), 4),
-                # 全影像統計
-                'FullImage_Mean': full_image_mean,
-                'FullImage_SD': full_image_sd,
-                # Exposure Index 系列 (標準 EI)
-                'ExposureIndex': exposure_index,
-                'TargetExposureIndex': target_exposure_index,
-                'DeviationIndex': deviation_index,
-                # 曝光參數
-                'ExposureTime_ms': getattr(ds, 'ExposureTime', 'N/A'),
-                'Exposure_mAs': getattr(ds, 'Exposure', 'N/A'),
-                'ExposureInuAs': getattr(ds, 'ExposureInuAs', 'N/A'),
-                'XRayTubeCurrent_mA': getattr(ds, 'XRayTubeCurrent', 'N/A'),
-                'KVP': getattr(ds, 'KVP', 'N/A'),
-                # ROI 位置
-                'ROI_X': clicked_center[0],
-                'ROI_Y': clicked_center[1],
-                'ROI_R': radius
-            })
-            if (i+1) % 10 == 0: print(f"進度: {i+1} / {len(dicom_files)}")
-        except Exception as e:
-            print(f"檔案 {os.path.basename(path)} 分析失敗: {e}")
-
-    # 5. 匯出 CSV
-    df = pd.DataFrame(results)
-    # 將 PatientName 放在最前面一欄
-    cols = ['PatientName', 'PatientID', 'FileName', 'ROI_Mean', 'ROI_Noise_SD'] + \
-           [c for c in df.columns if c not in ['PatientName', 'PatientID', 'FileName', 'ROI_Mean', 'ROI_Noise_SD']]
-    df = df[cols]
-    
-    df.to_csv(OUTPUT_NAME, index=False, encoding='utf-8-sig')
-    print("-" * 40)
-    print(f"分析完成！")
-    print(f"結果已儲存至: {os.path.abspath(OUTPUT_NAME)}")
-
-if __name__ == "__main__":
-    run_pure_dicom_analysis()
+</html>

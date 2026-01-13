@@ -40,6 +40,10 @@ const state = {
     // Per-image WW/WL storage (for apply to all)
     imageWWWL: [],          // Array of {ww, wl} for each image
 
+    // Rotation
+    rotation: 0,            // Current rotation angle (0, 90, 180, 270)
+    imageRotations: [],     // Array of rotation angles for each image
+
     // Mouse state for WW/WL adjustment
     isRightDragging: false,
     dragStartX: 0,
@@ -189,6 +193,18 @@ const elements = {
     applyWWWLAllBtn: document.getElementById('applyWWWLAllBtn'),
     resetWWWLBtn: document.getElementById('resetWWWLBtn'),
 
+    // Rotation Controls
+    rotationSlider: document.getElementById('rotationSlider'),
+    rotationValue: document.getElementById('rotationValue'),
+    rotateMinus45Btn: document.getElementById('rotateMinus45Btn'),
+    rotateMinus1Btn: document.getElementById('rotateMinus1Btn'),
+    rotatePlus1Btn: document.getElementById('rotatePlus1Btn'),
+    rotatePlus45Btn: document.getElementById('rotatePlus45Btn'),
+    rotate90LeftBtn: document.getElementById('rotate90LeftBtn'),
+    rotate90RightBtn: document.getElementById('rotate90RightBtn'),
+    resetRotationBtn: document.getElementById('resetRotationBtn'),
+    applyRotationAllBtn: document.getElementById('applyRotationAllBtn'),
+
     // Analysis
     analyzeBtn: document.getElementById('analyzeBtn'),
     analysisProgress: document.getElementById('analysisProgress'),
@@ -265,6 +281,17 @@ function setupEventListeners() {
     });
     elements.resetWWWLBtn.addEventListener('click', resetWindowLevel);
     elements.applyWWWLAllBtn.addEventListener('click', applyWWWLToAll);
+
+    // Rotation controls
+    elements.rotationSlider.addEventListener('input', handleRotationSlider);
+    elements.rotateMinus45Btn.addEventListener('click', () => rotateImage(-45));
+    elements.rotateMinus1Btn.addEventListener('click', () => rotateImage(-1));
+    elements.rotatePlus1Btn.addEventListener('click', () => rotateImage(1));
+    elements.rotatePlus45Btn.addEventListener('click', () => rotateImage(45));
+    elements.rotate90LeftBtn.addEventListener('click', () => rotateImage(-90));
+    elements.rotate90RightBtn.addEventListener('click', () => rotateImage(90));
+    elements.resetRotationBtn.addEventListener('click', resetRotation);
+    elements.applyRotationAllBtn.addEventListener('click', applyRotationToAll);
 
     // Zoom controls
     elements.zoomSlider.addEventListener('input', handleZoomSlider);
@@ -456,9 +483,18 @@ function loadImage(index) {
         state.windowLevel = state.defaultWL;
     }
 
+    // Check if we have stored rotation for this image
+    if (state.imageRotations[index] !== undefined) {
+        state.rotation = state.imageRotations[index];
+    } else {
+        state.rotation = 0;
+    }
+
     // Update UI
     elements.windowWidth.value = Math.round(state.windowWidth);
     elements.windowLevel.value = Math.round(state.windowLevel);
+    elements.rotationSlider.value = state.rotation;
+    elements.rotationValue.textContent = state.rotation + '°';
     elements.imageSlider.value = index;
     elements.imageCounter.textContent = `${index + 1} / ${state.files.length}`;
 
@@ -478,12 +514,6 @@ function renderImage() {
     const zoomFactor = state.zoom / 100;
     const displayWidth = Math.round(cols * zoomFactor);
     const displayHeight = Math.round(rows * zoomFactor);
-
-    // Set canvas size with zoom
-    elements.dicomCanvas.width = displayWidth;
-    elements.dicomCanvas.height = displayHeight;
-    elements.dicomCanvas.style.width = displayWidth + 'px';
-    elements.dicomCanvas.style.height = displayHeight + 'px';
 
     // Apply window/level
     const ww = state.windowWidth;
@@ -513,10 +543,29 @@ function renderImage() {
 
     offCtx.putImageData(imageData, 0, 0);
 
+    // Handle rotation - swap canvas dimensions for 90/270 degree rotations
+    const isRotated90or270 = (state.rotation === 90 || state.rotation === 270);
+    const canvasWidth = isRotated90or270 ? displayHeight : displayWidth;
+    const canvasHeight = isRotated90or270 ? displayWidth : displayHeight;
+
+    // Set canvas size with zoom and rotation consideration
+    elements.dicomCanvas.width = canvasWidth;
+    elements.dicomCanvas.height = canvasHeight;
+    elements.dicomCanvas.style.width = canvasWidth + 'px';
+    elements.dicomCanvas.style.height = canvasHeight + 'px';
+
+    // Apply rotation transform
+    elements.ctx.save();
+    elements.ctx.translate(canvasWidth / 2, canvasHeight / 2);
+    elements.ctx.rotate(state.rotation * Math.PI / 180);
+    elements.ctx.translate(-displayWidth / 2, -displayHeight / 2);
+
     // Draw scaled image to main canvas
     elements.ctx.imageSmoothingEnabled = true;
     elements.ctx.imageSmoothingQuality = 'high';
     elements.ctx.drawImage(offCanvas, 0, 0, displayWidth, displayHeight);
+
+    elements.ctx.restore();
 
     // Draw ROI (scaled)
     if (state.roiCenter) {
@@ -654,6 +703,49 @@ function applyWWWLToAll() {
 }
 
 // ============================================
+// Rotation Functions
+// ============================================
+function handleRotationSlider() {
+    state.rotation = parseInt(elements.rotationSlider.value);
+    state.imageRotations[state.currentIndex] = state.rotation;
+    elements.rotationValue.textContent = state.rotation + '°';
+    renderImage();
+}
+
+function rotateImage(delta) {
+    // Calculate new rotation angle (0-359)
+    state.rotation = ((state.rotation + delta) % 360 + 360) % 360;
+
+    // Store rotation for current image
+    state.imageRotations[state.currentIndex] = state.rotation;
+
+    // Update UI (slider and value)
+    elements.rotationSlider.value = state.rotation;
+    elements.rotationValue.textContent = state.rotation + '°';
+
+    renderImage();
+}
+
+function resetRotation() {
+    state.rotation = 0;
+    state.imageRotations[state.currentIndex] = 0;
+    elements.rotationSlider.value = 0;
+    elements.rotationValue.textContent = '0°';
+    renderImage();
+}
+
+function applyRotationToAll() {
+    const rotation = state.rotation;
+
+    // Store current rotation for all images
+    for (let i = 0; i < state.files.length; i++) {
+        state.imageRotations[i] = rotation;
+    }
+
+    alert(`已將旋轉角度 ${rotation}° 套用至全部 ${state.files.length} 張影像`);
+}
+
+// ============================================
 // Zoom Functions
 // ============================================
 function handleZoomSlider() {
@@ -708,6 +800,12 @@ function handleKeyDown(e) {
             break;
         case 'r':
             resetWindowLevel();
+            break;
+        case 'q':
+            rotateImage(-90);
+            break;
+        case 'e':
+            rotateImage(90);
             break;
     }
 }

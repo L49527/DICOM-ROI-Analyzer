@@ -114,6 +114,34 @@
                         <p class="hint">💡 放大後可用滾輪或拖曳捲軸平移</p>
                     </div>
 
+                    <!-- Rotation Settings -->
+                    <div class="control-card">
+                        <h3>🔄 旋轉設定</h3>
+                        <div class="control-group">
+                            <label>旋轉角度</label>
+                            <div class="rotation-control">
+                                <input type="range" id="rotationSlider" min="0" max="359" value="0" step="1">
+                                <span id="rotationValue">0°</span>
+                            </div>
+                        </div>
+                        <div class="rotation-buttons">
+                            <button id="rotateMinus45Btn" class="btn btn-secondary btn-sm">-45°</button>
+                            <button id="rotateMinus1Btn" class="btn btn-secondary btn-sm">-1°</button>
+                            <button id="rotatePlus1Btn" class="btn btn-secondary btn-sm">+1°</button>
+                            <button id="rotatePlus45Btn" class="btn btn-secondary btn-sm">+45°</button>
+                        </div>
+                        <div class="rotation-buttons" style="margin-top: 8px;">
+                            <button id="rotate90LeftBtn" class="btn btn-secondary btn-sm">↺ -90°</button>
+                            <button id="resetRotationBtn" class="btn btn-secondary btn-sm">🔄 重設</button>
+                            <button id="rotate90RightBtn" class="btn btn-secondary btn-sm">↻ +90°</button>
+                        </div>
+                        <div class="rotation-buttons" style="margin-top: 8px;">
+                            <button id="applyRotationAllBtn" class="btn btn-primary btn-block btn-sm">📋
+                                套用至全部影像</button>
+                        </div>
+                        <p class="hint">💡 按 Q/E 旋轉 ±90°，拖曳滑桿自由調整角度</p>
+                    </div>
+
                     <!-- Window/Level Settings -->
                     <div class="control-card">
                         <h3>🎚️ Window/Level</h3>

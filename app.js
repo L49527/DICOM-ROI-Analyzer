@@ -54,7 +54,11 @@ const state = {
     // Analysis results
     results: [],
     availableTags: new Set(),
-    selectedTags: new Set()
+    selectedTags: new Set(),
+
+    // Display tags on image overlay
+    displayTags: new Set(),
+    tempDisplayTags: new Set()  // Temporary selection in modal
 };
 
 // DICOM Tag 中文翻譯對照表
@@ -229,7 +233,19 @@ const elements = {
 
     // Loading
     loadingOverlay: document.getElementById('loadingOverlay'),
-    loadingText: document.getElementById('loadingText')
+    loadingText: document.getElementById('loadingText'),
+
+    // Display Tags
+    displayTagBtn: document.getElementById('displayTagBtn'),
+    displayTagModal: document.getElementById('displayTagModal'),
+    displayTagList: document.getElementById('displayTagList'),
+    closeDisplayTagBtn: document.getElementById('closeDisplayTagBtn'),
+    selectAllDisplayTags: document.getElementById('selectAllDisplayTags'),
+    deselectAllDisplayTags: document.getElementById('deselectAllDisplayTags'),
+    cancelDisplayTagBtn: document.getElementById('cancelDisplayTagBtn'),
+    confirmDisplayTagBtn: document.getElementById('confirmDisplayTagBtn'),
+    customTagsOverlay: document.getElementById('customTagsOverlay'),
+    displayTagPreview: document.getElementById('displayTagPreview')
 };
 
 // ============================================
@@ -312,11 +328,20 @@ function setupEventListeners() {
     elements.selectAllTags.addEventListener('click', () => toggleAllTags(true));
     elements.deselectAllTags.addEventListener('click', () => toggleAllTags(false));
 
+    // Display Tag Modal
+    elements.displayTagBtn.addEventListener('click', openDisplayTagModal);
+    elements.closeDisplayTagBtn.addEventListener('click', () => hideModal('displayTagModal'));
+    elements.cancelDisplayTagBtn.addEventListener('click', () => hideModal('displayTagModal'));
+    elements.confirmDisplayTagBtn.addEventListener('click', confirmDisplayTags);
+    elements.selectAllDisplayTags.addEventListener('click', () => toggleAllDisplayTags(true));
+    elements.deselectAllDisplayTags.addEventListener('click', () => toggleAllDisplayTags(false));
+
     // Modal backdrop click
     document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
         backdrop.addEventListener('click', () => {
             hideModal('helpModal');
             hideModal('tagModal');
+            hideModal('displayTagModal');
         });
     });
 
@@ -607,6 +632,9 @@ function updateOverlayInfo() {
     } else {
         elements.roiInfo.textContent = '';
     }
+
+    // Display custom tags on overlay
+    updateCustomTagsOverlay();
 }
 
 // ============================================
@@ -1074,6 +1102,140 @@ function showLoading(text) {
 
 function hideLoading() {
     elements.loadingOverlay.classList.add('hidden');
+}
+
+// ============================================
+// Display Tag Functions
+// ============================================
+
+// DICOM Tag to Element Address mapping
+const DISPLAY_TAG_MAPPING = {
+    'PatientName': 'x00100010',
+    'PatientID': 'x00100020',
+    'PatientBirthDate': 'x00100030',
+    'PatientSex': 'x00100040',
+    'PatientAge': 'x00101010',
+    'StudyDate': 'x00080020',
+    'StudyTime': 'x00080030',
+    'StudyDescription': 'x00081030',
+    'SeriesDescription': 'x0008103e',
+    'Modality': 'x00080060',
+    'Manufacturer': 'x00080070',
+    'InstitutionName': 'x00080080',
+    'StationName': 'x00081010',
+    'ManufacturerModelName': 'x00081090',
+    'ExposureIndex': 'x00181411',
+    'TargetExposureIndex': 'x00181412',
+    'DeviationIndex': 'x00181413',
+    'ExposureTime': 'x00181150',
+    'Exposure': 'x00181152',
+    'XRayTubeCurrent': 'x00181151',
+    'KVP': 'x00180060',
+    'DistanceSourceToDetector': 'x00181110',
+    'BodyPartExamined': 'x00180015',
+    'ViewPosition': 'x00185101',
+    'ImageLaterality': 'x00200062',
+    'Rows': 'x00280010',
+    'Columns': 'x00280011',
+    'WindowWidth': 'x00281051',
+    'WindowCenter': 'x00281050',
+    'InstanceNumber': 'x00200013'
+};
+
+function openDisplayTagModal() {
+    const tagList = elements.displayTagList;
+    tagList.innerHTML = '';
+
+    // Copy current display tags to temp
+    state.tempDisplayTags = new Set(state.displayTags);
+
+    // Get available tags (sorted by Chinese translation)
+    const allTags = Object.keys(TAG_TRANSLATIONS).filter(tag => DISPLAY_TAG_MAPPING[tag]);
+    allTags.sort((a, b) => {
+        const aName = TAG_TRANSLATIONS[a] || a;
+        const bName = TAG_TRANSLATIONS[b] || b;
+        return aName.localeCompare(bName, 'zh-TW');
+    });
+
+    for (const tag of allTags) {
+        const item = document.createElement('div');
+        item.className = 'tag-item';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `display-tag-${tag}`;
+        checkbox.checked = state.tempDisplayTags.has(tag);
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                state.tempDisplayTags.add(tag);
+            } else {
+                state.tempDisplayTags.delete(tag);
+            }
+        });
+
+        const label = document.createElement('label');
+        label.htmlFor = `display-tag-${tag}`;
+        label.textContent = TAG_TRANSLATIONS[tag] || tag;
+        label.title = tag;
+
+        item.appendChild(checkbox);
+        item.appendChild(label);
+        tagList.appendChild(item);
+    }
+
+    showModal('displayTagModal');
+}
+
+function toggleAllDisplayTags(select) {
+    const checkboxes = elements.displayTagList.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        cb.checked = select;
+        const tag = cb.id.replace('display-tag-', '');
+        if (select) {
+            state.tempDisplayTags.add(tag);
+        } else {
+            state.tempDisplayTags.delete(tag);
+        }
+    });
+}
+
+function confirmDisplayTags() {
+    state.displayTags = new Set(state.tempDisplayTags);
+    hideModal('displayTagModal');
+    updateDisplayTagPreview();
+    updateCustomTagsOverlay();
+}
+
+function updateDisplayTagPreview() {
+    if (state.displayTags.size === 0) {
+        elements.displayTagPreview.textContent = '(未選擇任何標籤)';
+    } else {
+        const names = Array.from(state.displayTags).map(tag => TAG_TRANSLATIONS[tag] || tag);
+        elements.displayTagPreview.textContent = `已選擇: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '...' : ''}`;
+    }
+}
+
+function updateCustomTagsOverlay() {
+    const ds = state.currentDS;
+    if (!ds || state.displayTags.size === 0) {
+        elements.customTagsOverlay.innerHTML = '';
+        return;
+    }
+
+    const lines = [];
+    for (const tag of state.displayTags) {
+        const address = DISPLAY_TAG_MAPPING[tag];
+        if (address) {
+            let value = ds.string(address);
+            if (value === undefined || value === '') {
+                value = '--';
+            }
+            const displayName = TAG_TRANSLATIONS[tag] || tag;
+            lines.push(`<span class="tag-label">${displayName}:</span> <span class="tag-value">${value}</span>`);
+        }
+    }
+
+    elements.customTagsOverlay.innerHTML = lines.join('<br>');
 }
 
 // Initialize on DOM ready

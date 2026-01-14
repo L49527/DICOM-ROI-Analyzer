@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DICOM ROI Analyzer 🔬</title>
+    <meta name="description" content="DICOM 影像 ROI 分析工具 - 支援批次分析、Window Width/Level 調整、全螢幕檢視">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🔬</span>
+                <div>
+                    <h1>DICOM ROI Analyzer</h1>
+                    <span class="logo-subtitle">Medical Imaging Analysis System</span>
+                </div>
+            </div>
+            <div class="header-controls">
+                <span class="status-indicator status-ready">System Ready</span>
+                <button id="helpBtn" class="btn btn-ghost" title="使用說明">
+                    <span>📖</span> 說明
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Drop Zone (Initial State) -->
+            <div id="dropZone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">🩻</div>
+                    <h2>拖曳 DICOM 資料夾到此處</h2>
+                    <p>支援批次分析多張醫學影像</p>
+                    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+                    <button id="selectFolderBtn" class="btn btn-primary">選擇資料夾</button>
+                    <div class="medical-badge">HIPAA Compliant - 本機處理，資料不上傳</div>
+                </div>
+            </div>
+
+            <!-- Viewer Panel (After Loading) -->
+            <div id="viewerPanel" class="viewer-panel hidden">
+                <!-- Left: Image Viewer -->
+                <div class="image-section">
+                    <div class="image-container" id="imageContainer">
+                        <div class="image-container-inner">
+                            <canvas id="dicomCanvas"></canvas>
+                        </div>
+                        <div class="image-overlay">
+                            <div class="overlay-top-left" id="patientInfo"></div>
+                            <div class="overlay-top-right" id="wwwlInfo">WW: -- | WL: --</div>
+                            <div class="overlay-bottom-left" id="fileInfo"></div>
+                            <div class="overlay-bottom-right" id="roiInfo"></div>
+                            <div class="overlay-custom-tags" id="customTagsOverlay"></div>
+                        </div>
+                        <!-- Fullscreen Button -->
+                        <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)">⛶</button>
+                    </div>
+
+                    <!-- Image Navigation -->
+                    <div class="image-nav">
+                        <button id="prevBtn" class="btn btn-icon" title="上一張 (A)">◀</button>
+                        <div class="image-slider-container">
+                            <input type="range" id="imageSlider" min="0" max="0" value="0">
+                            <span id="imageCounter">0 / 0</span>
+                        </div>
+                        <button id="nextBtn" class="btn btn-icon" title="下一張 (D)">▶</button>
+                    </div>
+                </div>
+
+                <!-- Right: Controls Panel -->
+                <div class="controls-section">
+                    <!-- ROI Settings -->
+                    <div class="control-card">
+                        <h3>🎯 ROI 設定</h3>
+                        <div class="control-group">
+                            <label>ROI 半徑 (像素)</label>
+                            <div class="input-with-unit">
+                                <input type="number" id="roiRadius" value="25" min="5" max="200">
+                                <span>px</span>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>圓心位置</label>
+                            <div class="position-display">
+                                <span>X: <strong id="roiX">--</strong></span>
+                                <span>Y: <strong id="roiY">--</strong></span>
+                            </div>
+                        </div>
+                        <p class="hint">💡 點擊影像設定 ROI 圓心</p>
+                    </div>
+
+                    <!-- Zoom Control -->
+                    <div class="control-card">
+                        <h3>🔍 放大倍率</h3>
+                        <div class="control-group">
+                            <label>縮放比例</label>
+                            <div class="zoom-control">
+                                <input type="range" id="zoomSlider" min="25" max="400" value="100" step="25">
+                                <span id="zoomValue">100%</span>
+                            </div>
+                        </div>
+                        <div class="zoom-buttons">
+                            <button id="zoomOutBtn" class="btn btn-secondary btn-sm">➖</button>
+                            <button id="zoomResetBtn" class="btn btn-secondary btn-sm">100%</button>
+                            <button id="zoomInBtn" class="btn btn-secondary btn-sm">➕</button>
+                        </div>
+                        <p class="hint">💡 放大後可用滾輪或拖曳捲軸平移</p>
+                    </div>
+
+                    <!-- Rotation Settings -->
+                    <div class="control-card">
+                        <h3>🔄 旋轉設定</h3>
+                        <div class="control-group">
+                            <label>旋轉角度</label>
+                            <div class="rotation-control">
+                                <input type="range" id="rotationSlider" min="0" max="359" value="0" step="1">
+                                <span id="rotationValue">0°</span>
+                            </div>
+                        </div>
+                        <div class="rotation-buttons">
+                            <button id="rotateMinus45Btn" class="btn btn-secondary btn-sm">-45°</button>
+                            <button id="rotateMinus1Btn" class="btn btn-secondary btn-sm">-1°</button>
+                            <button id="rotatePlus1Btn" class="btn btn-secondary btn-sm">+1°</button>
+                            <button id="rotatePlus45Btn" class="btn btn-secondary btn-sm">+45°</button>
+                        </div>
+                        <div class="rotation-buttons" style="margin-top: 8px;">
+                            <button id="rotate90LeftBtn" class="btn btn-secondary btn-sm">↺ -90°</button>
+                            <button id="resetRotationBtn" class="btn btn-secondary btn-sm">🔄 重設</button>
+                            <button id="rotate90RightBtn" class="btn btn-secondary btn-sm">↻ +90°</button>
+                        </div>
+                        <div class="rotation-buttons" style="margin-top: 8px;">
+                            <button id="applyRotationAllBtn" class="btn btn-primary btn-block btn-sm">📋
+                                套用至全部影像</button>
+                        </div>
+                        <p class="hint">💡 按 Q/E 旋轉 ±90°，拖曳滑桿自由調整角度</p>
+                    </div>
+
+                    <!-- Window/Level Settings -->
+                    <div class="control-card">
+                        <h3>🎚️ Window/Level</h3>
+                        <div class="control-group">
+                            <label>Window Width</label>
+                            <input type="number" id="windowWidth" value="400">
+                        </div>
+                        <div class="control-group">
+                            <label>Window Level</label>
+                            <input type="number" id="windowLevel" value="40">
+                        </div>
+                        <div class="wwwl-buttons">
+                            <button id="resetWWWLBtn" class="btn btn-secondary btn-sm">🔄 重設 (R)</button>
+                            <button id="applyWWWLAllBtn" class="btn btn-primary btn-sm">📋 套用至全部</button>
+                        </div>
+                        <p class="hint">💡 右鍵拖曳調整 WW/WL</p>
+                    </div>
+
+                    <!-- Display Tags Settings -->
+                    <div class="control-card">
+                        <h3>📋 影像標籤顯示</h3>
+                        <p class="hint" style="margin-bottom: 12px;">選擇要在影像上顯示的 DICOM 標籤資訊</p>
+                        <button id="displayTagBtn" class="btn btn-primary btn-block btn-sm">
+                            ⚙️ 設定顯示標籤
+                        </button>
+                        <div id="displayTagPreview" class="display-tag-preview"></div>
+                    </div>
+
+                    <!-- Analysis Controls -->
+                    <div class="control-card">
+                        <h3>📊 分析</h3>
+                        <button id="analyzeBtn" class="btn btn-primary btn-block" disabled>
+                            ⚡ 分析全部影像
+                        </button>
+                        <div id="analysisProgress" class="progress-container hidden">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <span id="progressText">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- Export Controls -->
+                    <div class="control-card">
+                        <h3>📥 匯出</h3>
+                        <button id="exportBtn" class="btn btn-success btn-block" disabled>
+                            📥 選擇標籤並匯出
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Help Modal -->
+        <div id="helpModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>📖 使用說明</h2>
+                    <button class="modal-close" id="closeHelpBtn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <h3>🖱️ 滑鼠操作</h3>
+                    <table class="help-table">
+                        <tr>
+                            <td><strong>左鍵點擊</strong></td>
+                            <td>選取 ROI 圓心位置</td>
+                        </tr>
+                        <tr>
+                            <td><strong>右鍵拖曳</strong></td>
+                            <td>調整 Window Width / Level</td>
+                        </tr>
+                    </table>
+
+                    <h3>⌨️ 鍵盤快捷鍵</h3>
+                    <table class="help-table">
+                        <tr>
+                            <td><kbd>A</kbd> / <kbd>←</kbd></td>
+                            <td>上一張影像</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>D</kbd> / <kbd>→</kbd></td>
+                            <td>下一張影像</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>F</kbd></td>
+                            <td>切換全螢幕模式</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>R</kbd></td>
+                            <td>重設 Window Width / Level</td>
+                        </tr>
+                    </table>
+
+                    <h3>🎚️ Window Width / Level</h3>
+                    <ul>
+                        <li><strong>水平拖曳</strong>：調整 Window Width (對比度)</li>
+                        <li><strong>垂直拖曳</strong>：調整 Window Level (亮度)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tag Selection Modal -->
+        <div id="tagModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>✅ 選擇輸出標籤</h2>
+                    <button class="modal-close" id="closeTagBtn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tag-actions">
+                        <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
+                        <button id="deselectAllTags" class="btn btn-sm btn-secondary">全不選</button>
+                    </div>
+                    <div id="tagList" class="tag-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelExportBtn" class="btn btn-secondary">取消</button>
+                    <button id="confirmExportBtn" class="btn btn-success">📥 匯出 CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Display Tag Selection Modal -->
+        <div id="displayTagModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>📋 選擇要顯示的標籤</h2>
+                    <button class="modal-close" id="closeDisplayTagBtn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tag-actions">
+                        <button id="selectAllDisplayTags" class="btn btn-sm btn-secondary">全選</button>
+                        <button id="deselectAllDisplayTags" class="btn btn-sm btn-secondary">全不選</button>
+                    </div>
+                    <div id="displayTagList" class="tag-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelDisplayTagBtn" class="btn btn-secondary">取消</button>
+                    <button id="confirmDisplayTagBtn" class="btn btn-primary">✓ 確認</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="loading-spinner"></div>
+            <p id="loadingText">載入中...</p>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/dicom-parser@1.8.21/dist/dicomParser.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

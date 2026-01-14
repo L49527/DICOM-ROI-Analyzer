@@ -374,6 +374,48 @@ body {
     text-align: right;
 }
 
+/* Custom Tags Overlay - Large Font */
+.overlay-custom-tags {
+    position: absolute;
+    left: var(--spacing-md);
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.2rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 500;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+    white-space: pre-line;
+    padding: var(--spacing-md);
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: var(--radius-md);
+    color: #ffffff;
+    line-height: 1.8;
+    max-width: 400px;
+    border-left: 4px solid var(--accent-cyan);
+}
+
+.overlay-custom-tags:empty {
+    display: none;
+}
+
+.overlay-custom-tags .tag-label {
+    color: #80deea;
+    font-weight: 600;
+}
+
+.overlay-custom-tags .tag-value {
+    color: #ffffff;
+}
+
+/* Display Tag Preview in Control Panel */
+.display-tag-preview {
+    margin-top: var(--spacing-sm);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    max-height: 80px;
+    overflow-y: auto;
+}
+
 /* Fullscreen Button */
 .fullscreen-btn {
     position: absolute;

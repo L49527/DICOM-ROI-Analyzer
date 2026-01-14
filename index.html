@@ -58,6 +58,7 @@
                             <div class="overlay-top-right" id="wwwlInfo">WW: -- | WL: --</div>
                             <div class="overlay-bottom-left" id="fileInfo"></div>
                             <div class="overlay-bottom-right" id="roiInfo"></div>
+                            <div class="overlay-custom-tags" id="customTagsOverlay"></div>
                         </div>
                         <!-- Fullscreen Button -->
                         <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)">⛶</button>
@@ -160,6 +161,16 @@
                         <p class="hint">💡 右鍵拖曳調整 WW/WL</p>
                     </div>
 
+                    <!-- Display Tags Settings -->
+                    <div class="control-card">
+                        <h3>📋 影像標籤顯示</h3>
+                        <p class="hint" style="margin-bottom: 12px;">選擇要在影像上顯示的 DICOM 標籤資訊</p>
+                        <button id="displayTagBtn" class="btn btn-primary btn-block btn-sm">
+                            ⚙️ 設定顯示標籤
+                        </button>
+                        <div id="displayTagPreview" class="display-tag-preview"></div>
+                    </div>
+
                     <!-- Analysis Controls -->
                     <div class="control-card">
                         <h3>📊 分析</h3>
@@ -253,6 +264,28 @@
                 <div class="modal-footer">
                     <button id="cancelExportBtn" class="btn btn-secondary">取消</button>
                     <button id="confirmExportBtn" class="btn btn-success">📥 匯出 CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Display Tag Selection Modal -->
+        <div id="displayTagModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>📋 選擇要顯示的標籤</h2>
+                    <button class="modal-close" id="closeDisplayTagBtn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="tag-actions">
+                        <button id="selectAllDisplayTags" class="btn btn-sm btn-secondary">全選</button>
+                        <button id="deselectAllDisplayTags" class="btn btn-sm btn-secondary">全不選</button>
+                    </div>
+                    <div id="displayTagList" class="tag-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelDisplayTagBtn" class="btn btn-secondary">取消</button>
+                    <button id="confirmDisplayTagBtn" class="btn btn-primary">✓ 確認</button>
                 </div>
             </div>
         </div>

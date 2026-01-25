@@ -211,6 +211,9 @@ const elements = {
 
     // Analysis
     analyzeBtn: document.getElementById('analyzeBtn'),
+    singleResultActions: document.getElementById('singleResultActions'),
+    singleResultInfo: document.getElementById('singleResultInfo'),
+    exportSingleBtn: document.getElementById('exportSingleBtn'),
     analysisProgress: document.getElementById('analysisProgress'),
     progressFill: document.getElementById('progressFill'),
     progressText: document.getElementById('progressText'),
@@ -321,6 +324,7 @@ function setupEventListeners() {
     elements.analyzeBtn.addEventListener('click', runAnalysis);
     elements.singleImageSelect.addEventListener('change', updateSingleAnalyzeButton);
     elements.analyzeSingleBtn.addEventListener('click', runSingleImageAnalysis);
+    elements.exportSingleBtn.addEventListener('click', exportSingleCSV);
     elements.exportBtn.addEventListener('click', openTagModal);
 
     // Modals
@@ -960,10 +964,15 @@ async function runSingleImageAnalysis() {
         if (result.DeviationIndex) resultLines.push(`   • 偏差指數 (DI): ${result.DeviationIndex}`);
         if (result.KVP) resultLines.push(`   • 管電壓: ${result.KVP} kVp`);
 
-        alert(resultLines.join('\n'));
-
-        // Store result for potential export
+        // Store result for export
         state.singleResult = result;
+
+        // Show result actions panel
+        elements.singleResultActions.classList.remove('hidden');
+        elements.singleResultInfo.textContent = `✅ ${result.FileName} 分析完成`;
+
+        // Show brief result alert
+        alert(resultLines.join('\n'));
 
     } catch (err) {
         hideLoading();
@@ -1206,6 +1215,41 @@ function exportCSV() {
     URL.revokeObjectURL(url);
 
     hideModal('tagModal');
+}
+
+function exportSingleCSV() {
+    if (!state.singleResult) {
+        alert('尚無單張分析結果可匯出');
+        return;
+    }
+
+    const result = state.singleResult;
+
+    // Build CSV with all available fields
+    const fields = Object.keys(result);
+    let csv = fields.join(',') + '\n';
+
+    const row = fields.map(field => {
+        const value = result[field] || '';
+        // Escape quotes and wrap in quotes if contains comma
+        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+    });
+    csv += row.join(',') + '\n';
+
+    // Download
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+
+    // Use filename for download name
+    const baseName = result.FileName.replace(/\.[^/.]+$/, '') || 'single_analysis';
+    a.download = `${baseName}_roi_analysis_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
 }
 
 // ============================================

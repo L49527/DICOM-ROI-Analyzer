@@ -183,6 +183,22 @@
                             </div>
                             <span id="progressText">0%</span>
                         </div>
+                        <div class="single-analysis-section"
+                            style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                            <label
+                                style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">🎯
+                                單張影像分析</label>
+                            <div class="single-analysis-controls" style="display: flex; gap: 8px;">
+                                <select id="singleImageSelect" class="single-image-select"
+                                    style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem;">
+                                    <option value="">-- 選擇影像 --</option>
+                                </select>
+                                <button id="analyzeSingleBtn" class="btn btn-secondary" disabled title="分析選定的單張影像">
+                                    📷 分析
+                                </button>
+                            </div>
+                            <p class="hint" style="margin-top: 8px;">💡 選擇特定影像進行單獨分析</p>
+                        </div>
                     </div>
 
                     <!-- Export Controls -->

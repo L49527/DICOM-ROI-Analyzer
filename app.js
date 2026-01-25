@@ -214,6 +214,8 @@ const elements = {
     analysisProgress: document.getElementById('analysisProgress'),
     progressFill: document.getElementById('progressFill'),
     progressText: document.getElementById('progressText'),
+    singleImageSelect: document.getElementById('singleImageSelect'),
+    analyzeSingleBtn: document.getElementById('analyzeSingleBtn'),
 
     // Export
     exportBtn: document.getElementById('exportBtn'),
@@ -317,6 +319,8 @@ function setupEventListeners() {
 
     // Analysis
     elements.analyzeBtn.addEventListener('click', runAnalysis);
+    elements.singleImageSelect.addEventListener('change', updateSingleAnalyzeButton);
+    elements.analyzeSingleBtn.addEventListener('click', runSingleImageAnalysis);
     elements.exportBtn.addEventListener('click', openTagModal);
 
     // Modals
@@ -435,6 +439,7 @@ async function loadDICOMFiles(files) {
 
         loadImage(0);
         updateAnalyzeButton();
+        updateSingleImageSelect();
     } else {
         alert('未找到有效的 DICOM 影像檔案');
     }
@@ -843,6 +848,128 @@ function handleKeyDown(e) {
 // ============================================
 function updateAnalyzeButton() {
     elements.analyzeBtn.disabled = !state.roiCenter || state.files.length === 0;
+    updateSingleAnalyzeButton();
+}
+
+function updateSingleImageSelect() {
+    const select = elements.singleImageSelect;
+    select.innerHTML = '<option value="">-- 選擇影像 --</option>';
+
+    state.files.forEach((fileObj, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = `${index + 1}. ${fileObj.file.name}`;
+        select.appendChild(option);
+    });
+}
+
+function updateSingleAnalyzeButton() {
+    const selectedIndex = elements.singleImageSelect.value;
+    elements.analyzeSingleBtn.disabled = !state.roiCenter || selectedIndex === '';
+}
+
+async function runSingleImageAnalysis() {
+    const selectedIndex = parseInt(elements.singleImageSelect.value);
+    if (isNaN(selectedIndex) || !state.roiCenter) return;
+
+    const { file, dataSet, byteArray } = state.files[selectedIndex];
+
+    // Initialize result storage if needed
+    state.availableTags = new Set(['FileName', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
+
+    const commonTags = [
+        { tag: 'x00100010', name: 'PatientName' },
+        { tag: 'x00100020', name: 'PatientID' },
+        { tag: 'x00080020', name: 'StudyDate' },
+        { tag: 'x00080060', name: 'Modality' },
+        { tag: 'x00080070', name: 'Manufacturer' },
+        { tag: 'x00181411', name: 'ExposureIndex' },
+        { tag: 'x00181412', name: 'TargetExposureIndex' },
+        { tag: 'x00181413', name: 'DeviationIndex' },
+        { tag: 'x00181150', name: 'ExposureTime' },
+        { tag: 'x00181152', name: 'Exposure' },
+        { tag: 'x00181151', name: 'XRayTubeCurrent' },
+        { tag: 'x00180060', name: 'KVP' },
+        { tag: 'x00280010', name: 'Rows' },
+        { tag: 'x00280011', name: 'Columns' }
+    ];
+
+    try {
+        showLoading('正在分析影像...');
+
+        // Get pixel data
+        const pixelData = getPixelDataFromDataSet(dataSet, byteArray);
+        const rows = dataSet.uint16('x00280010');
+        const cols = dataSet.uint16('x00280011');
+
+        // Calculate ROI statistics
+        const roiStats = calculateROIStats(pixelData, cols, rows, state.roiCenter, state.roiRadius);
+
+        // Calculate full image statistics
+        let sum = 0, sumSq = 0;
+        for (let j = 0; j < pixelData.length; j++) {
+            sum += pixelData[j];
+            sumSq += pixelData[j] * pixelData[j];
+        }
+        const fullMean = sum / pixelData.length;
+        const fullSD = Math.sqrt(sumSq / pixelData.length - fullMean * fullMean);
+
+        // Build result object
+        const result = {
+            FileName: file.name,
+            ROI_Mean: roiStats.mean.toFixed(4),
+            ROI_Noise_SD: roiStats.sd.toFixed(4),
+            FullImage_Mean: fullMean.toFixed(4),
+            FullImage_SD: fullSD.toFixed(4),
+            ROI_X: state.roiCenter.x,
+            ROI_Y: state.roiCenter.y,
+            ROI_R: state.roiRadius
+        };
+
+        // Extract DICOM tags
+        for (const { tag, name } of commonTags) {
+            const value = dataSet.string(tag);
+            if (value !== undefined) {
+                result[name] = value;
+                state.availableTags.add(name);
+            }
+        }
+
+        hideLoading();
+
+        // Show result in a modal-like alert with detailed info
+        const resultLines = [
+            `📊 單張影像分析結果`,
+            ``,
+            `📁 檔案名稱: ${result.FileName}`,
+            ``,
+            `🎯 ROI 分析:`,
+            `   • 平均值: ${result.ROI_Mean}`,
+            `   • 標準差 (雜訊): ${result.ROI_Noise_SD}`,
+            `   • 圓心: (${result.ROI_X}, ${result.ROI_Y})`,
+            `   • 半徑: ${result.ROI_R}`,
+            ``,
+            `📷 全影像分析:`,
+            `   • 平均值: ${result.FullImage_Mean}`,
+            `   • 標準差: ${result.FullImage_SD}`
+        ];
+
+        // Add DICOM tags if available
+        if (result.ExposureIndex) resultLines.push(`   • 曝光指標 (EI): ${result.ExposureIndex}`);
+        if (result.TargetExposureIndex) resultLines.push(`   • 目標 EI: ${result.TargetExposureIndex}`);
+        if (result.DeviationIndex) resultLines.push(`   • 偏差指數 (DI): ${result.DeviationIndex}`);
+        if (result.KVP) resultLines.push(`   • 管電壓: ${result.KVP} kVp`);
+
+        alert(resultLines.join('\n'));
+
+        // Store result for potential export
+        state.singleResult = result;
+
+    } catch (err) {
+        hideLoading();
+        console.error('Single image analysis error:', err);
+        alert(`分析失敗: ${err.message}`);
+    }
 }
 
 async function runAnalysis() {
@@ -1201,6 +1328,8 @@ function toggleAllDisplayTags(select) {
 
 function confirmDisplayTags() {
     state.displayTags = new Set(state.tempDisplayTags);
+    console.log('confirmDisplayTags: 已選擇標籤數量 =', state.displayTags.size);
+    console.log('選擇的標籤:', Array.from(state.displayTags));
     hideModal('displayTagModal');
     updateDisplayTagPreview();
     updateCustomTagsOverlay();
@@ -1216,15 +1345,21 @@ function updateDisplayTagPreview() {
 }
 
 function updateCustomTagsOverlay() {
+    console.log('updateCustomTagsOverlay 被呼叫');
+    console.log('state.currentDS:', state.currentDS ? '存在' : '不存在');
+    console.log('state.displayTags.size:', state.displayTags.size);
+
     const ds = state.currentDS;
     if (!ds || state.displayTags.size === 0) {
         elements.customTagsOverlay.innerHTML = '';
+        console.log('沒有資料集或沒有選擇標籤，清空 overlay');
         return;
     }
 
     const lines = [];
     for (const tag of state.displayTags) {
         const address = DISPLAY_TAG_MAPPING[tag];
+        console.log(`處理標籤 ${tag}, 地址=${address}`);
         if (address) {
             let value = ds.string(address);
             if (value === undefined || value === '') {
@@ -1235,7 +1370,9 @@ function updateCustomTagsOverlay() {
         }
     }
 
+    console.log('生成的行數:', lines.length);
     elements.customTagsOverlay.innerHTML = lines.join('<br>');
+    console.log('customTagsOverlay innerHTML 已設定');
 }
 
 // Initialize on DOM ready

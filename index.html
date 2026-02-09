@@ -190,6 +190,11 @@
                     <!-- Analysis Controls -->
                     <div class="control-card">
                         <h3>📊 分析</h3>
+                        <div class="control-group" style="margin-bottom: 12px;">
+                            <label>指定 Slice Location (選填)</label>
+                            <input type="text" id="sliceLocationFilter" placeholder="例如: -50 或 100.5">
+                            <p class="hint" style="margin-top: 4px; font-size: 0.75rem;">若填寫，僅分析符合此位置的影像 (如 S0)</p>
+                        </div>
                         <button id="analyzeBtn" class="btn btn-primary btn-block" disabled>
                             ⚡ 分析全部影像
                         </button>

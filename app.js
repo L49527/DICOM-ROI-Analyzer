@@ -149,7 +149,8 @@ const TAG_TRANSLATIONS = {
     'ContentTime': '內容時間',
     'InstanceNumber': '影像編號',
     'SOPClassUID': 'SOP 類別 UID',
-    'SOPInstanceUID': 'SOP 實例 UID'
+    'SOPInstanceUID': 'SOP 實例 UID',
+    'SliceLocation': '切片位置'
 };
 
 // 取得標籤的中文翻譯
@@ -268,7 +269,10 @@ const elements = {
     cancelDisplayTagBtn: document.getElementById('cancelDisplayTagBtn'),
     confirmDisplayTagBtn: document.getElementById('confirmDisplayTagBtn'),
     customTagsOverlay: document.getElementById('customTagsOverlay'),
-    displayTagPreview: document.getElementById('displayTagPreview')
+    displayTagPreview: document.getElementById('displayTagPreview'),
+
+    // Filter
+    sliceLocationFilter: document.getElementById('sliceLocationFilter')
 };
 
 // ============================================
@@ -572,6 +576,12 @@ function loadImage(index) {
     // Update patient info
     updateOverlayInfo();
 
+    // Sync Single Image Analysis dropdown
+    if (elements.singleImageSelect) {
+        elements.singleImageSelect.value = index;
+        updateSingleAnalyzeButton();
+    }
+
     renderImage();
 }
 
@@ -679,7 +689,15 @@ function updateOverlayInfo() {
     const patientID = ds.string('x00100020') || 'N/A';
 
     elements.patientInfo.textContent = `Patient: ${patientName}\nID: ${patientID}`;
-    elements.fileInfo.textContent = `File: ${state.files[state.currentIndex].file.name}`;
+
+    const instanceNumber = ds.string('x00200013') || '';
+    const sliceLocation = ds.string('x00201041') || '';
+
+    let fileInfoText = `File: ${state.files[state.currentIndex].file.name}`;
+    if (instanceNumber) fileInfoText += ` | Img: ${instanceNumber}`;
+    if (sliceLocation) fileInfoText += ` | Loc: ${sliceLocation}`;
+
+    elements.fileInfo.textContent = fileInfoText;
 
     // Update ROI info for multiple ROIs
     if (state.roiCenters.length > 0) {
@@ -974,9 +992,29 @@ function updateSingleImageSelect() {
     state.files.forEach((fileObj, index) => {
         const option = document.createElement('option');
         option.value = index;
-        option.textContent = `${index + 1}. ${fileObj.file.name}`;
+
+        let label = `${index + 1}. ${fileObj.file.name}`;
+
+        // Add Instance Number and Slice Location if available
+        const instanceNumber = fileObj.dataSet.string('x00200013');
+        const sliceLocation = fileObj.dataSet.string('x00201041');
+
+        const extraInfo = [];
+        if (instanceNumber) extraInfo.push(`Img: ${instanceNumber}`);
+        if (sliceLocation) extraInfo.push(`Loc: ${sliceLocation}`);
+
+        if (extraInfo.length > 0) {
+            label += ` (${extraInfo.join(', ')})`;
+        }
+
+        option.textContent = label;
         select.appendChild(option);
     });
+
+    // Set initial value if current index is valid
+    if (state.currentIndex >= 0 && state.currentIndex < state.files.length) {
+        select.value = state.currentIndex;
+    }
 }
 
 function updateSingleAnalyzeButton() {
@@ -1007,7 +1045,9 @@ async function runSingleImageAnalysis() {
         { tag: 'x00181151', name: 'XRayTubeCurrent' },
         { tag: 'x00180060', name: 'KVP' },
         { tag: 'x00280010', name: 'Rows' },
-        { tag: 'x00280011', name: 'Columns' }
+        { tag: 'x00280011', name: 'Columns' },
+        { tag: 'x00201041', name: 'SliceLocation' },
+        { tag: 'x0008103e', name: 'SeriesDescription' }
     ];
 
     try {
@@ -1092,6 +1132,12 @@ async function runAnalysis() {
     state.results = [];
     state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
 
+    // Get filter value
+    const filterValue = elements.sliceLocationFilter.value.trim();
+    if (filterValue) {
+        console.log(`Applying Slice Location Filter: "${filterValue}"`);
+    }
+
     elements.analysisProgress.classList.remove('hidden');
     elements.analyzeBtn.disabled = true;
 
@@ -1109,7 +1155,9 @@ async function runAnalysis() {
         { tag: 'x00181151', name: 'XRayTubeCurrent' },
         { tag: 'x00180060', name: 'KVP' },
         { tag: 'x00280010', name: 'Rows' },
-        { tag: 'x00280011', name: 'Columns' }
+        { tag: 'x00280011', name: 'Columns' },
+        { tag: 'x00201041', name: 'SliceLocation' },
+        { tag: 'x0008103e', name: 'SeriesDescription' }
     ];
 
     const totalTasks = state.files.length * state.roiCenters.length;
@@ -1119,6 +1167,54 @@ async function runAnalysis() {
         const { file, dataSet, byteArray } = state.files[i];
 
         try {
+            // Apply Slice Location Filter
+            // Apply Slice Location Filter
+            if (filterValue) {
+                const sliceLoc = dataSet.string('x00201041') || '';
+
+                let isMatch = false;
+
+                // 1. Exact String Match (Highest Priority)
+                if (sliceLoc === filterValue) {
+                    isMatch = true;
+                } else {
+                    // 2. Numeric Match (If filter is a valid number)
+                    const filterNum = parseFloat(filterValue);
+
+                    if (!isNaN(filterNum)) {
+                        const sliceNum = parseFloat(sliceLoc);
+                        // Only match if both are valid numbers and close enough
+                        // This prevents "10" from matching "100" (substring match avoided)
+                        if (!isNaN(sliceNum) && Math.abs(sliceNum - filterNum) < 0.001) {
+                            isMatch = true;
+                        }
+                    } else {
+                        // 3. Substring Match (Only for non-numeric filters like "S0", "Loc: A")
+                        if (sliceLoc.includes(filterValue)) {
+                            isMatch = true;
+                        }
+                    }
+                }
+
+                if (!isMatch) {
+                    completedTasks += state.roiCenters.length; // Skip this file
+
+                    // Possible fix for progress bar lag when many files are skipped
+                    // but doing DOM update inside loop might slow down skipping.
+                    // Given the loop is async only via occasional timeouts? No, the loop is not async perse
+                    // except the "Allow UI to update" block below.
+                    // If we skip, we hit "continue" and loop continues.
+                    // If we skip many files, we won't hit the "Allow UI to update" block until we actually process one?
+                    // No, the "Allow UI to update" block is inside the loop at the end.
+                    // If we "continue", we skip that block too!
+                    // So we must manually allow UI update occasionally if we are skipping many files?
+                    // Or just let it be. If 1000 files skipped, loop runs 1000 times. JS is fast.
+                    // It might freeze UI for a second.
+
+                    continue; // Skip to next file
+                }
+            }
+
             // Get pixel data
             const pixelData = getPixelDataFromDataSet(dataSet, byteArray);
             const rows = dataSet.uint16('x00280010');
@@ -1249,7 +1345,7 @@ function openTagModal() {
     state.selectedTags = new Set([
         'PatientName', 'PatientID', 'FileName', 'ROI_ID',
         'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
-        'ExposureIndex', 'KVP'
+        'ExposureIndex', 'KVP', 'SliceLocation', 'SeriesDescription'
     ]);
 
     const sortedTags = Array.from(state.availableTags).sort((a, b) => {
@@ -1429,7 +1525,10 @@ const DISPLAY_TAG_MAPPING = {
     'Columns': 'x00280011',
     'WindowWidth': 'x00281051',
     'WindowCenter': 'x00281050',
-    'InstanceNumber': 'x00200013'
+    'WindowCenter': 'x00281050',
+    'InstanceNumber': 'x00200013',
+    'SeriesNumber': 'x00200011',
+    'SliceLocation': 'x00201041'
 };
 
 function openDisplayTagModal() {

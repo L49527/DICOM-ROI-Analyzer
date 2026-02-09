@@ -24,8 +24,8 @@ const state = {
     pixelData: null,        // Current image pixel data
     currentDS: null,        // Current DICOM dataset
 
-    // ROI
-    roiCenter: null,        // {x, y}
+    // ROI - Multi-ROI Support
+    roiCenters: [],         // Array of {x, y} objects
     roiRadius: 25,
 
     // Zoom
@@ -61,6 +61,15 @@ const state = {
     tempDisplayTags: new Set()  // Temporary selection in modal
 };
 
+// CT Presets
+const CT_PRESETS = {
+    lung: { ww: 1500, wl: -600 },
+    brain: { ww: 80, wl: 40 },
+    bone: { ww: 2000, wl: 300 },
+    abdomen: { ww: 400, wl: 50 },
+    mediastinum: { ww: 350, wl: 50 }
+};
+
 // DICOM Tag 中文翻譯對照表
 const TAG_TRANSLATIONS = {
     // 分析結果標籤
@@ -69,6 +78,7 @@ const TAG_TRANSLATIONS = {
     'ROI_Noise_SD': 'ROI 雜訊 (標準差)',
     'FullImage_Mean': '全影像平均值',
     'FullImage_SD': '全影像標準差',
+    'ROI_ID': 'ROI 編號',
     'ROI_X': 'ROI 圓心 X',
     'ROI_Y': 'ROI 圓心 Y',
     'ROI_R': 'ROI 半徑',
@@ -181,8 +191,10 @@ const elements = {
 
     // ROI Controls
     roiRadius: document.getElementById('roiRadius'),
-    roiX: document.getElementById('roiX'),
-    roiY: document.getElementById('roiY'),
+    roiCount: document.getElementById('roiCount'),
+    roiListContainer: document.getElementById('roiListContainer'),
+    deleteLastRoiBtn: document.getElementById('deleteLastRoiBtn'),
+    clearAllRoiBtn: document.getElementById('clearAllRoiBtn'),
 
     // Zoom Controls
     zoomSlider: document.getElementById('zoomSlider'),
@@ -208,6 +220,12 @@ const elements = {
     rotate90RightBtn: document.getElementById('rotate90RightBtn'),
     resetRotationBtn: document.getElementById('resetRotationBtn'),
     applyRotationAllBtn: document.getElementById('applyRotationAllBtn'),
+
+    // CT Presets
+    presetLungBtn: document.getElementById('presetLungBtn'),
+    presetBrainBtn: document.getElementById('presetBrainBtn'),
+    presetBoneBtn: document.getElementById('presetBoneBtn'),
+    presetAbdBtn: document.getElementById('presetAbdBtn'),
 
     // Analysis
     analyzeBtn: document.getElementById('analyzeBtn'),
@@ -291,6 +309,10 @@ function setupEventListeners() {
         renderImage();
     });
 
+    // Multi-ROI controls
+    elements.deleteLastRoiBtn.addEventListener('click', deleteLastRoi);
+    elements.clearAllRoiBtn.addEventListener('click', clearAllRois);
+
     // WW/WL controls
     elements.windowWidth.addEventListener('change', () => {
         state.windowWidth = parseFloat(elements.windowWidth.value) || 400;
@@ -302,6 +324,12 @@ function setupEventListeners() {
     });
     elements.resetWWWLBtn.addEventListener('click', resetWindowLevel);
     elements.applyWWWLAllBtn.addEventListener('click', applyWWWLToAll);
+
+    // CT Preset Listeners
+    if (elements.presetLungBtn) elements.presetLungBtn.addEventListener('click', () => setWindowLevel(CT_PRESETS.lung.ww, CT_PRESETS.lung.wl));
+    if (elements.presetBrainBtn) elements.presetBrainBtn.addEventListener('click', () => setWindowLevel(CT_PRESETS.brain.ww, CT_PRESETS.brain.wl));
+    if (elements.presetBoneBtn) elements.presetBoneBtn.addEventListener('click', () => setWindowLevel(CT_PRESETS.bone.ww, CT_PRESETS.bone.wl));
+    if (elements.presetAbdBtn) elements.presetAbdBtn.addEventListener('click', () => setWindowLevel(CT_PRESETS.abdomen.ww, CT_PRESETS.abdomen.wl));
 
     // Rotation controls
     elements.rotationSlider.addEventListener('input', handleRotationSlider);
@@ -433,6 +461,15 @@ async function loadDICOMFiles(files) {
     }
 
     hideLoading();
+
+    // Check for compressed transfer syntax
+    const compressedFiles = state.files.filter(f => checkTransferSyntax(f.dataSet));
+    if (compressedFiles.length > 0) {
+        const fileNames = compressedFiles.slice(0, 3).map(f => f.file.name).join(', ');
+        const moreCount = compressedFiles.length - 3;
+        const moreText = moreCount > 0 ? `...等 ${compressedFiles.length} 個檔案` : '';
+        alert(`⚠️ 注意：偵測到壓縮格式的 DICOM 檔案\n\n${fileNames} ${moreText}\n\n本工具僅支援未壓縮 (Uncompressed) 的影像。壓縮的影像可能無法顯示 (會呈現黑色或雜訊)，這是正常的格式限制。`);
+    }
 
     if (state.files.length > 0) {
         elements.dropZone.classList.add('hidden');
@@ -601,13 +638,16 @@ function renderImage() {
 
     elements.ctx.restore();
 
-    // Draw ROI (scaled)
-    if (state.roiCenter) {
-        const scaledX = state.roiCenter.x * zoomFactor;
-        const scaledY = state.roiCenter.y * zoomFactor;
+    // Draw multiple ROIs (scaled)
+    const roiColors = ['#ff0000', '#00ff00', '#0080ff', '#ff8000', '#ff00ff', '#00ffff', '#ffff00', '#8000ff'];
+    state.roiCenters.forEach((center, index) => {
+        const scaledX = center.x * zoomFactor;
+        const scaledY = center.y * zoomFactor;
         const scaledRadius = state.roiRadius * zoomFactor;
+        const color = roiColors[index % roiColors.length];
 
-        elements.ctx.strokeStyle = '#ff0000';
+        // Draw ROI circle
+        elements.ctx.strokeStyle = color;
         elements.ctx.lineWidth = 2;
         elements.ctx.beginPath();
         elements.ctx.arc(scaledX, scaledY, scaledRadius, 0, 2 * Math.PI);
@@ -620,7 +660,12 @@ function renderImage() {
         elements.ctx.moveTo(scaledX, scaledY - 10);
         elements.ctx.lineTo(scaledX, scaledY + 10);
         elements.ctx.stroke();
-    }
+
+        // Draw ROI number label
+        elements.ctx.fillStyle = color;
+        elements.ctx.font = 'bold 14px Inter, sans-serif';
+        elements.ctx.fillText(`${index + 1}`, scaledX + scaledRadius + 5, scaledY - scaledRadius);
+    });
 
     // Update WW/WL display
     elements.wwwlInfo.textContent = `WW: ${Math.round(state.windowWidth)} | WL: ${Math.round(state.windowLevel)}`;
@@ -636,14 +681,69 @@ function updateOverlayInfo() {
     elements.patientInfo.textContent = `Patient: ${patientName}\nID: ${patientID}`;
     elements.fileInfo.textContent = `File: ${state.files[state.currentIndex].file.name}`;
 
-    if (state.roiCenter) {
-        elements.roiInfo.textContent = `ROI: (${state.roiCenter.x}, ${state.roiCenter.y}) R=${state.roiRadius}`;
+    // Update ROI info for multiple ROIs
+    if (state.roiCenters.length > 0) {
+        elements.roiInfo.textContent = `ROI: ${state.roiCenters.length} 個 (R=${state.roiRadius})`;
     } else {
         elements.roiInfo.textContent = '';
     }
 
     // Display custom tags on overlay
     updateCustomTagsOverlay();
+}
+
+// Multi-ROI management functions
+function updateRoiControls() {
+    const count = state.roiCenters.length;
+    elements.roiCount.textContent = count;
+    elements.deleteLastRoiBtn.disabled = count === 0;
+    elements.clearAllRoiBtn.disabled = count === 0;
+
+    // Update ROI list display
+    updateRoiList();
+}
+
+function updateRoiList() {
+    const container = elements.roiListContainer;
+    container.innerHTML = '';
+
+    if (state.roiCenters.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 8px;">尚未放置 ROI</div>';
+        return;
+    }
+
+    const roiColors = ['#ff0000', '#00ff00', '#0080ff', '#ff8000', '#ff00ff', '#00ffff', '#ffff00', '#8000ff'];
+    state.roiCenters.forEach((center, index) => {
+        const item = document.createElement('div');
+        item.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.1);';
+
+        const color = roiColors[index % roiColors.length];
+        item.innerHTML = `
+            <span style="width: 12px; height: 12px; border-radius: 50%; background: ${color}; display: inline-block;"></span>
+            <span>ROI ${index + 1}: (${center.x}, ${center.y})</span>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function deleteLastRoi() {
+    if (state.roiCenters.length > 0) {
+        state.roiCenters.pop();
+        updateRoiControls();
+        renderImage();
+        updateOverlayInfo();
+        updateAnalyzeButton();
+    }
+}
+
+function clearAllRois() {
+    if (state.roiCenters.length > 0 && confirm(`確定要清除全部 ${state.roiCenters.length} 個 ROI 嗎？`)) {
+        state.roiCenters = [];
+        updateRoiControls();
+        renderImage();
+        updateOverlayInfo();
+        updateAnalyzeButton();
+    }
 }
 
 // ============================================
@@ -678,11 +778,11 @@ function handleCanvasClick(e) {
     if (e.button !== 0) return; // Only left click
 
     const coords = getCanvasCoordinates(e);
-    state.roiCenter = coords;
 
-    elements.roiX.textContent = coords.x;
-    elements.roiY.textContent = coords.y;
+    // Multi-ROI: Add new ROI to array
+    state.roiCenters.push(coords);
 
+    updateRoiControls();
     renderImage();
     updateOverlayInfo();
     updateAnalyzeButton();
@@ -737,6 +837,14 @@ function applyWWWLToAll() {
     }
 
     alert(`已將 WW: ${Math.round(ww)} / WL: ${Math.round(wl)} 套用至全部 ${state.files.length} 張影像`);
+}
+
+function setWindowLevel(ww, wl) {
+    state.windowWidth = ww;
+    state.windowLevel = wl;
+    elements.windowWidth.value = Math.round(state.windowWidth);
+    elements.windowLevel.value = Math.round(state.windowLevel);
+    renderImage();
 }
 
 // ============================================
@@ -844,6 +952,10 @@ function handleKeyDown(e) {
         case 'e':
             rotateImage(90);
             break;
+        case 'backspace':
+            e.preventDefault();
+            deleteLastRoi();
+            break;
     }
 }
 
@@ -851,7 +963,7 @@ function handleKeyDown(e) {
 // Analysis
 // ============================================
 function updateAnalyzeButton() {
-    elements.analyzeBtn.disabled = !state.roiCenter || state.files.length === 0;
+    elements.analyzeBtn.disabled = state.roiCenters.length === 0 || state.files.length === 0;
     updateSingleAnalyzeButton();
 }
 
@@ -869,17 +981,17 @@ function updateSingleImageSelect() {
 
 function updateSingleAnalyzeButton() {
     const selectedIndex = elements.singleImageSelect.value;
-    elements.analyzeSingleBtn.disabled = !state.roiCenter || selectedIndex === '';
+    elements.analyzeSingleBtn.disabled = state.roiCenters.length === 0 || selectedIndex === '';
 }
 
 async function runSingleImageAnalysis() {
     const selectedIndex = parseInt(elements.singleImageSelect.value);
-    if (isNaN(selectedIndex) || !state.roiCenter) return;
+    if (isNaN(selectedIndex) || state.roiCenters.length === 0) return;
 
     const { file, dataSet, byteArray } = state.files[selectedIndex];
 
-    // Initialize result storage if needed
-    state.availableTags = new Set(['FileName', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
+    // Initialize result storage with ROI_ID
+    state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
 
     const commonTags = [
         { tag: 'x00100010', name: 'PatientName' },
@@ -906,10 +1018,7 @@ async function runSingleImageAnalysis() {
         const rows = dataSet.uint16('x00280010');
         const cols = dataSet.uint16('x00280011');
 
-        // Calculate ROI statistics
-        const roiStats = calculateROIStats(pixelData, cols, rows, state.roiCenter, state.roiRadius);
-
-        // Calculate full image statistics
+        // Calculate full image statistics (shared for all ROIs)
         let sum = 0, sumSq = 0;
         for (let j = 0; j < pixelData.length; j++) {
             sum += pixelData[j];
@@ -918,58 +1027,54 @@ async function runSingleImageAnalysis() {
         const fullMean = sum / pixelData.length;
         const fullSD = Math.sqrt(sumSq / pixelData.length - fullMean * fullMean);
 
-        // Build result object
-        const result = {
-            FileName: file.name,
-            ROI_Mean: roiStats.mean.toFixed(4),
-            ROI_Noise_SD: roiStats.sd.toFixed(4),
-            FullImage_Mean: fullMean.toFixed(4),
-            FullImage_SD: fullSD.toFixed(4),
-            ROI_X: state.roiCenter.x,
-            ROI_Y: state.roiCenter.y,
-            ROI_R: state.roiRadius
-        };
-
-        // Extract DICOM tags
+        // Extract DICOM tags (shared for all ROIs)
+        const dicomTags = {};
         for (const { tag, name } of commonTags) {
             const value = dataSet.string(tag);
             if (value !== undefined) {
-                result[name] = value;
+                dicomTags[name] = value;
                 state.availableTags.add(name);
             }
         }
 
-        hideLoading();
-
-        // Show result in a modal-like alert with detailed info
+        // Multi-ROI: Analyze each ROI separately
+        const singleResults = [];
         const resultLines = [
             `📊 單張影像分析結果`,
             ``,
-            `📁 檔案名稱: ${result.FileName}`,
-            ``,
-            `🎯 ROI 分析:`,
-            `   • 平均值: ${result.ROI_Mean}`,
-            `   • 標準差 (雜訊): ${result.ROI_Noise_SD}`,
-            `   • 圓心: (${result.ROI_X}, ${result.ROI_Y})`,
-            `   • 半徑: ${result.ROI_R}`,
-            ``,
-            `📷 全影像分析:`,
-            `   • 平均值: ${result.FullImage_Mean}`,
-            `   • 標準差: ${result.FullImage_SD}`
+            `📁 檔案名稱: ${file.name}`,
+            `🎯 分析 ${state.roiCenters.length} 個 ROI:`,
+            ``
         ];
 
-        // Add DICOM tags if available
-        if (result.ExposureIndex) resultLines.push(`   • 曝光指標 (EI): ${result.ExposureIndex}`);
-        if (result.TargetExposureIndex) resultLines.push(`   • 目標 EI: ${result.TargetExposureIndex}`);
-        if (result.DeviationIndex) resultLines.push(`   • 偏差指數 (DI): ${result.DeviationIndex}`);
-        if (result.KVP) resultLines.push(`   • 管電壓: ${result.KVP} kVp`);
+        state.roiCenters.forEach((center, index) => {
+            const roiStats = calculateROIStats(pixelData, cols, rows, center, state.roiRadius);
 
-        // Store result for export
-        state.singleResult = result;
+            const result = {
+                FileName: file.name,
+                ROI_ID: index + 1,
+                ROI_Mean: roiStats.mean.toFixed(4),
+                ROI_Noise_SD: roiStats.sd.toFixed(4),
+                FullImage_Mean: fullMean.toFixed(4),
+                FullImage_SD: fullSD.toFixed(4),
+                ROI_X: center.x,
+                ROI_Y: center.y,
+                ROI_R: state.roiRadius,
+                ...dicomTags
+            };
+
+            singleResults.push(result);
+            resultLines.push(`   ROI ${index + 1}: (${center.x}, ${center.y}) → Mean: ${roiStats.mean.toFixed(2)}, SD: ${roiStats.sd.toFixed(2)}`);
+        });
+
+        hideLoading();
+
+        // Store results for export
+        state.singleResults = singleResults;
 
         // Show result actions panel
         elements.singleResultActions.classList.remove('hidden');
-        elements.singleResultInfo.textContent = `✅ ${result.FileName} 分析完成`;
+        elements.singleResultInfo.textContent = `✅ ${file.name} - ${state.roiCenters.length} 個 ROI 分析完成`;
 
         // Show brief result alert
         alert(resultLines.join('\n'));
@@ -982,10 +1087,10 @@ async function runSingleImageAnalysis() {
 }
 
 async function runAnalysis() {
-    if (!state.roiCenter) return;
+    if (state.roiCenters.length === 0) return;
 
     state.results = [];
-    state.availableTags = new Set(['FileName', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
+    state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
 
     elements.analysisProgress.classList.remove('hidden');
     elements.analyzeBtn.disabled = true;
@@ -1007,16 +1112,11 @@ async function runAnalysis() {
         { tag: 'x00280011', name: 'Columns' }
     ];
 
+    const totalTasks = state.files.length * state.roiCenters.length;
+    let completedTasks = 0;
+
     for (let i = 0; i < state.files.length; i++) {
         const { file, dataSet, byteArray } = state.files[i];
-
-        // Update progress
-        const progress = Math.round((i + 1) / state.files.length * 100);
-        elements.progressFill.style.width = `${progress}%`;
-        elements.progressText.textContent = `${progress}% (${i + 1}/${state.files.length})`;
-
-        // Allow UI to update
-        await new Promise(resolve => setTimeout(resolve, 0));
 
         try {
             // Get pixel data
@@ -1024,10 +1124,7 @@ async function runAnalysis() {
             const rows = dataSet.uint16('x00280010');
             const cols = dataSet.uint16('x00280011');
 
-            // Calculate ROI statistics
-            const roiStats = calculateROIStats(pixelData, cols, rows, state.roiCenter, state.roiRadius);
-
-            // Calculate full image statistics
+            // Calculate full image statistics (shared for all ROIs on this image)
             let sum = 0, sumSq = 0;
             for (let j = 0; j < pixelData.length; j++) {
                 sum += pixelData[j];
@@ -1036,30 +1133,49 @@ async function runAnalysis() {
             const fullMean = sum / pixelData.length;
             const fullSD = Math.sqrt(sumSq / pixelData.length - fullMean * fullMean);
 
-            // Build result object
-            const result = {
-                FileName: file.name,
-                ROI_Mean: roiStats.mean.toFixed(4),
-                ROI_Noise_SD: roiStats.sd.toFixed(4),
-                FullImage_Mean: fullMean.toFixed(4),
-                FullImage_SD: fullSD.toFixed(4),
-                ROI_X: state.roiCenter.x,
-                ROI_Y: state.roiCenter.y,
-                ROI_R: state.roiRadius
-            };
-
-            // Extract DICOM tags
+            // Extract DICOM tags (shared for all ROIs on this image)
+            const dicomTags = {};
             for (const { tag, name } of commonTags) {
                 const value = dataSet.string(tag);
                 if (value !== undefined) {
-                    result[name] = value;
+                    dicomTags[name] = value;
                     state.availableTags.add(name);
                 }
             }
 
-            state.results.push(result);
+            // Multi-ROI: Analyze each ROI separately
+            for (let roiIndex = 0; roiIndex < state.roiCenters.length; roiIndex++) {
+                const center = state.roiCenters[roiIndex];
+                const roiStats = calculateROIStats(pixelData, cols, rows, center, state.roiRadius);
+
+                const result = {
+                    FileName: file.name,
+                    ROI_ID: roiIndex + 1,
+                    ROI_Mean: roiStats.mean.toFixed(4),
+                    ROI_Noise_SD: roiStats.sd.toFixed(4),
+                    FullImage_Mean: fullMean.toFixed(4),
+                    FullImage_SD: fullSD.toFixed(4),
+                    ROI_X: center.x,
+                    ROI_Y: center.y,
+                    ROI_R: state.roiRadius,
+                    ...dicomTags
+                };
+
+                state.results.push(result);
+                completedTasks++;
+
+                // Update progress
+                const progress = Math.round(completedTasks / totalTasks * 100);
+                elements.progressFill.style.width = `${progress}%`;
+                elements.progressText.textContent = `${progress}% (${completedTasks}/${totalTasks})`;
+            }
+
+            // Allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 0));
+
         } catch (err) {
             console.error(`Error analyzing ${file.name}:`, err);
+            completedTasks += state.roiCenters.length; // Skip all ROIs for this file
         }
     }
 
@@ -1067,7 +1183,7 @@ async function runAnalysis() {
     elements.analyzeBtn.disabled = false;
     elements.exportBtn.disabled = false;
 
-    alert(`分析完成！共處理 ${state.results.length} 張影像`);
+    alert(`分析完成！\n\n📁 影像數量: ${state.files.length}\n🎯 ROI 數量: ${state.roiCenters.length}\n📊 總結果數: ${state.results.length} 筆`);
 }
 
 function getPixelDataFromDataSet(dataSet, byteArray) {
@@ -1131,7 +1247,7 @@ function openTagModal() {
 
     // Default selected tags
     state.selectedTags = new Set([
-        'PatientName', 'PatientID', 'FileName',
+        'PatientName', 'PatientID', 'FileName', 'ROI_ID',
         'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
         'ExposureIndex', 'KVP'
     ]);
@@ -1218,26 +1334,29 @@ function exportCSV() {
 }
 
 function exportSingleCSV() {
-    if (!state.singleResult) {
+    if (!state.singleResults || state.singleResults.length === 0) {
         alert('尚無單張分析結果可匯出');
         return;
     }
 
-    const result = state.singleResult;
+    const results = state.singleResults;
 
     // Build CSV with all available fields
-    const fields = Object.keys(result);
+    const fields = Object.keys(results[0]);
     let csv = fields.join(',') + '\n';
 
-    const row = fields.map(field => {
-        const value = result[field] || '';
-        // Escape quotes and wrap in quotes if contains comma
-        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-            return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
-    });
-    csv += row.join(',') + '\n';
+    // Add each ROI result as a row
+    for (const result of results) {
+        const row = fields.map(field => {
+            const value = result[field] || '';
+            // Escape quotes and wrap in quotes if contains comma
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+                return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+        });
+        csv += row.join(',') + '\n';
+    }
 
     // Download
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
@@ -1246,8 +1365,8 @@ function exportSingleCSV() {
     a.href = url;
 
     // Use filename for download name
-    const baseName = result.FileName.replace(/\.[^/.]+$/, '') || 'single_analysis';
-    a.download = `${baseName}_roi_analysis_${new Date().toISOString().slice(0, 10)}.csv`;
+    const baseName = results[0].FileName.replace(/\.[^/.]+$/, '') || 'single_analysis';
+    a.download = `${baseName}_roi_analysis_${results.length}ROIs_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -1417,6 +1536,41 @@ function updateCustomTagsOverlay() {
     console.log('生成的行數:', lines.length);
     elements.customTagsOverlay.innerHTML = lines.join('<br>');
     console.log('customTagsOverlay innerHTML 已設定');
+}
+
+function checkTransferSyntax(dataSet) {
+    // x00020010: Transfer Syntax UID
+    const transferSyntax = dataSet.string('x00020010');
+
+    // List of compressed Transfer Syntaxes commonly found
+    // 1.2.840.10008.1.2.4.50 (JPEG Baseline)
+    // 1.2.840.10008.1.2.4.51 (JPEG Extended)
+    // 1.2.840.10008.1.2.4.70 (JPEG Lossless)
+    // 1.2.840.10008.1.2.4.80 (JPEG-LS)
+    // 1.2.840.10008.1.2.4.90 (JPEG 2000)
+    // 1.2.840.10008.1.2.5 (RLE Lossless)
+
+    if (!transferSyntax) return false;
+
+    // Explicitly allow uncompressed syntaxes
+    const uncompressedSyntaxes = [
+        '1.2.840.10008.1.2',      // Implicit VR Little Endian
+        '1.2.840.10008.1.2.1',    // Explicit VR Little Endian
+        '1.2.840.10008.1.2.1.99', // Deflated Explicit VR Little Endian (kinda compressed but sometimes works if browser supports deflate, but usually requires inflate) Note: Deflated is actually compressed.
+        '1.2.840.10008.1.2.2'     // Explicit VR Big Endian
+    ];
+
+    // If it's one of the known uncompressed ones, return false (not compressed issue)
+    if (uncompressedSyntaxes.includes(transferSyntax)) {
+        return false;
+    }
+
+    // If it starts with 1.2.840.10008.1.2.4 (JPEG family) or is RLE, it's compressed
+    if (transferSyntax.startsWith('1.2.840.10008.1.2.4') || transferSyntax === '1.2.840.10008.1.2.5') {
+        return true;
+    }
+
+    return false;
 }
 
 // Initialize on DOM ready

@@ -51,6 +51,14 @@ const state = {
     dragStartWW: 0,
     dragStartWL: 0,
 
+    // Pan state (Space + left-drag or middle-button drag)
+    isPanning: false,
+    isSpaceHeld: false,
+    panStartX: 0,
+    panStartY: 0,
+    panScrollLeft: 0,
+    panScrollTop: 0,
+
     // Analysis results
     results: [],
     availableTags: new Set(),
@@ -387,6 +395,7 @@ function setupEventListeners() {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
 }
 
 // ============================================
@@ -794,6 +803,8 @@ function getCanvasCoordinates(e) {
 
 function handleCanvasClick(e) {
     if (e.button !== 0) return; // Only left click
+    if (state.isSpaceHeld) return; // Ignore clicks during pan mode
+    if (state.wasPanning) { state.wasPanning = false; return; } // Ignore click after panning
 
     const coords = getCanvasCoordinates(e);
 
@@ -807,7 +818,7 @@ function handleCanvasClick(e) {
 }
 
 function handleMouseDown(e) {
-    if (e.button === 2) { // Right click
+    if (e.button === 2) { // Right click - WW/WL adjustment
         e.preventDefault();
         state.isRightDragging = true;
         state.dragStartX = e.clientX;
@@ -815,9 +826,26 @@ function handleMouseDown(e) {
         state.dragStartWW = state.windowWidth;
         state.dragStartWL = state.windowLevel;
     }
+    // Middle button or Space + left button - Pan
+    if (e.button === 1 || (e.button === 0 && state.isSpaceHeld)) {
+        e.preventDefault();
+        state.isPanning = true;
+        state.panStartX = e.clientX;
+        state.panStartY = e.clientY;
+        state.panScrollLeft = elements.imageContainer.scrollLeft;
+        state.panScrollTop = elements.imageContainer.scrollTop;
+        elements.dicomCanvas.style.cursor = 'grabbing';
+    }
 }
 
 function handleMouseMove(e) {
+    if (state.isPanning) {
+        const dx = e.clientX - state.panStartX;
+        const dy = e.clientY - state.panStartY;
+        elements.imageContainer.scrollLeft = state.panScrollLeft - dx;
+        elements.imageContainer.scrollTop = state.panScrollTop - dy;
+        return;
+    }
     if (state.isRightDragging) {
         const dx = e.clientX - state.dragStartX;
         const dy = e.clientY - state.dragStartY;
@@ -834,6 +862,11 @@ function handleMouseMove(e) {
 }
 
 function handleMouseUp(e) {
+    if (state.isPanning) {
+        state.wasPanning = true; // Prevent click from placing ROI after pan
+        state.isPanning = false;
+        elements.dicomCanvas.style.cursor = state.isSpaceHeld ? 'grab' : 'crosshair';
+    }
     state.isRightDragging = false;
 }
 
@@ -947,7 +980,17 @@ function toggleFullscreen() {
 // ============================================
 function handleKeyDown(e) {
     // Ignore if typing in input
-    if (e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+    // Space key for pan mode
+    if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (!state.isSpaceHeld) {
+            state.isSpaceHeld = true;
+            elements.dicomCanvas.style.cursor = 'grab';
+        }
+        return;
+    }
 
     switch (e.key.toLowerCase()) {
         case 'a':
@@ -974,6 +1017,15 @@ function handleKeyDown(e) {
             e.preventDefault();
             deleteLastRoi();
             break;
+    }
+}
+
+function handleKeyUp(e) {
+    if (e.key === ' ' || e.code === 'Space') {
+        state.isSpaceHeld = false;
+        if (!state.isPanning) {
+            elements.dicomCanvas.style.cursor = 'crosshair';
+        }
     }
 }
 

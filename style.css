@@ -315,8 +315,6 @@ body {
 
 .image-container-inner {
     display: flex;
-    align-items: center;
-    justify-content: center;
     min-width: 100%;
     min-height: 100%;
 }
@@ -324,6 +322,7 @@ body {
 #dicomCanvas {
     display: block;
     cursor: crosshair;
+    margin: auto;
 }
 
 /* Image Overlay - Clean Style */

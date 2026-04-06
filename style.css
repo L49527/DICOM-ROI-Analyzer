@@ -308,7 +308,7 @@ body {
     position: relative;
     background: #1a1a2e;
     border-radius: var(--radius-md);
-    overflow: auto;
+    overflow: hidden; /* Changed from auto to hidden for manual panning */
     border: 1px solid var(--border-color);
     min-height: 0;
 }
@@ -317,12 +317,34 @@ body {
     display: flex;
     min-width: 100%;
     min-height: 100%;
+    transition: none; /* No transition for smooth dragging */
+    transform-origin: center center;
 }
 
 #dicomCanvas {
     display: block;
     cursor: crosshair;
     margin: auto;
+}
+
+/* Crosshair Overlay - Top-most layer */
+.crosshair-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    background-image: 
+        linear-gradient(to right, transparent calc(50% - 0.75px), rgba(0, 255, 100, 0.7) 50%, transparent calc(50% + 0.75px)),
+        linear-gradient(to bottom, transparent calc(50% - 0.75px), rgba(0, 255, 100, 0.7) 50%, transparent calc(50% + 0.75px));
+    background-size: 100% 100%;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.grid-controls-inner {
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 /* Image Overlay - Clean Style */

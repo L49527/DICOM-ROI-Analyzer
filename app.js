@@ -56,8 +56,10 @@ const state = {
     isSpaceHeld: false,
     panStartX: 0,
     panStartY: 0,
-    panScrollLeft: 0,
-    panScrollTop: 0,
+    panX: 0,
+    panY: 0,
+    startPanX: 0,
+    startPanY: 0,
 
     // Analysis results
     results: [],
@@ -66,7 +68,12 @@ const state = {
 
     // Display tags on image overlay
     displayTags: new Set(),
-    tempDisplayTags: new Set()  // Temporary selection in modal
+    tempDisplayTags: new Set(), // Temporary selection in modal
+
+    // Grid Settings
+    showGrid: false,
+    gridMode: 'moving', // 'moving' or 'fixed'
+    gridSpacing: 50
 };
 
 // CT Presets
@@ -280,7 +287,15 @@ const elements = {
     displayTagPreview: document.getElementById('displayTagPreview'),
 
     // Filter
-    sliceLocationFilter: document.getElementById('sliceLocationFilter')
+    sliceLocationFilter: document.getElementById('sliceLocationFilter'),
+
+    // Grid Controls
+    gridToggle: document.getElementById('gridToggle'),
+    gridControlsInner: document.getElementById('gridControlsInner'),
+    gridMode: document.getElementById('gridMode'),
+    gridSpacing: document.getElementById('gridSpacing'),
+    crosshairOverlay: document.getElementById('crosshairOverlay'),
+    imageContainerInner: document.getElementById('imageContainerInner')
 };
 
 // ============================================
@@ -383,6 +398,11 @@ function setupEventListeners() {
     elements.confirmDisplayTagBtn.addEventListener('click', confirmDisplayTags);
     elements.selectAllDisplayTags.addEventListener('click', () => toggleAllDisplayTags(true));
     elements.deselectAllDisplayTags.addEventListener('click', () => toggleAllDisplayTags(false));
+
+    // Grid Controls
+    elements.gridToggle.addEventListener('change', handleGridToggle);
+    elements.gridMode.addEventListener('change', handleGridModeChange);
+    elements.gridSpacing.addEventListener('input', handleGridSpacingChange);
 
     // Modal backdrop click
     document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
@@ -655,6 +675,11 @@ function renderImage() {
     elements.ctx.imageSmoothingQuality = 'high';
     elements.ctx.drawImage(offCanvas, 0, 0, displayWidth, displayHeight);
 
+    // Draw Grid if in moving mode
+    if (state.showGrid && state.gridMode === 'moving') {
+        drawMovingGrid(elements.ctx, displayWidth, displayHeight, zoomFactor);
+    }
+
     elements.ctx.restore();
 
     // Draw multiple ROIs (scaled)
@@ -717,6 +742,67 @@ function updateOverlayInfo() {
 
     // Display custom tags on overlay
     updateCustomTagsOverlay();
+}
+
+// ============================================
+// Grid Functions
+// ============================================
+function handleGridToggle() {
+    state.showGrid = elements.gridToggle.checked;
+    
+    if (state.showGrid) {
+        elements.gridControlsInner.classList.remove('hidden');
+    } else {
+        elements.gridControlsInner.classList.add('hidden');
+    }
+    
+    updateGridDisplay();
+    renderImage();
+}
+
+function handleGridModeChange() {
+    state.gridMode = elements.gridMode.value;
+    updateGridDisplay();
+    renderImage();
+}
+
+function handleGridSpacingChange() {
+    state.gridSpacing = parseInt(elements.gridSpacing.value) || 50;
+    updateGridDisplay();
+    renderImage();
+}
+
+function updateGridDisplay() {
+    // Handle Fixed Grid (Overlay)
+    if (state.showGrid && state.gridMode === 'fixed') {
+        elements.crosshairOverlay.classList.remove('hidden');
+    } else {
+        elements.crosshairOverlay.classList.add('hidden');
+    }
+}
+
+function updatePanTransform() {
+    if (elements.imageContainerInner) {
+        elements.imageContainerInner.style.transform = `translate(${state.panX}px, ${state.panY}px)`;
+    }
+}
+
+function drawMovingGrid(ctx, width, height, zoom) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 255, 100, 0.5)'; // Fluorescent green
+    ctx.lineWidth = 1.5; // Slightly thicker for the crosshair
+
+    ctx.beginPath();
+    // Vertical Center Line
+    ctx.moveTo(width / 2, 0);
+    ctx.lineTo(width / 2, height);
+    
+    // Horizontal Center Line
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width, height / 2);
+    
+    ctx.stroke();
+    ctx.restore();
 }
 
 // Multi-ROI management functions
@@ -832,18 +918,17 @@ function handleMouseDown(e) {
         state.isPanning = true;
         state.panStartX = e.clientX;
         state.panStartY = e.clientY;
-        state.panScrollLeft = elements.imageContainer.scrollLeft;
-        state.panScrollTop = elements.imageContainer.scrollTop;
+        state.startPanX = state.panX;
+        state.startPanY = state.panY;
         elements.dicomCanvas.style.cursor = 'grabbing';
     }
 }
 
 function handleMouseMove(e) {
     if (state.isPanning) {
-        const dx = e.clientX - state.panStartX;
-        const dy = e.clientY - state.panStartY;
-        elements.imageContainer.scrollLeft = state.panScrollLeft - dx;
-        elements.imageContainer.scrollTop = state.panScrollTop - dy;
+        state.panX = state.startPanX + (e.clientX - state.panStartX);
+        state.panY = state.startPanY + (e.clientY - state.panStartY);
+        updatePanTransform();
         return;
     }
     if (state.isRightDragging) {

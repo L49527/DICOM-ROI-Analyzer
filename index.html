@@ -51,9 +51,10 @@
                 <!-- Left: Image Viewer -->
                 <div class="image-section">
                     <div class="image-container" id="imageContainer">
-                        <div class="image-container-inner">
+                        <div class="image-container-inner" id="imageContainerInner">
                             <canvas id="dicomCanvas"></canvas>
                         </div>
+                        <div id="crosshairOverlay" class="crosshair-overlay hidden"></div>
                         <div class="image-overlay">
                             <div class="overlay-top-left" id="patientInfo"></div>
                             <div class="overlay-top-right" id="wwwlInfo">WW: -- | WL: --</div>
@@ -176,6 +177,31 @@
                             <button id="applyWWWLAllBtn" class="btn btn-primary btn-sm">📋 套用至全部</button>
                         </div>
                         <p class="hint">💡 右鍵拖曳調整 WW/WL</p>
+                    </div>
+                    <!-- Grid Settings -->
+                    <div class="control-card">
+                        <h3>📏 格線設定</h3>
+                        <div class="control-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                            <input type="checkbox" id="gridToggle" style="width: 18px; height: 18px; cursor: pointer;">
+                            <label for="gridToggle" style="margin-bottom: 0; cursor: pointer; text-transform: none; letter-spacing: normal;">顯示中心十字 (Crosshair)</label>
+                        </div>
+                        <div class="grid-controls-inner hidden" id="gridControlsInner">
+                            <div class="control-group">
+                                <label>格線模式</label>
+                                <select id="gridMode" style="width: 100%; padding: 8px; border-radius: var(--radius-sm); background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                    <option value="moving">隨影像移動 (Attached)</option>
+                                    <option value="fixed">固定在畫面上 (Fixed)</option>
+                                </select>
+                            </div>
+                            <div class="control-group hidden">
+                                <label>間距 (像素)</label>
+                                <div class="input-with-unit">
+                                    <input type="number" id="gridSpacing" value="50" min="5" max="500">
+                                    <span>px</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="hint">💡 協助對齊與測量病灶大小</p>
                     </div>
 
                     <!-- Display Tags Settings -->
@@ -302,10 +328,10 @@
                         </tr>
                     </table>
 
-                    <h3>🎚️ Window Width / Level</h3>
+                    <h3>🎯 中心十字 (Crosshair)</h3>
                     <ul>
-                        <li><strong>水平拖曳</strong>：調整 Window Width (對比度)</li>
-                        <li><strong>垂直拖曳</strong>：調整 Window Level (亮度)</li>
+                        <li><strong>隨影像移動</strong>：十字固定在影像中心，隨縮放與旋轉同步變化。</li>
+                        <li><strong>固定在畫面上</strong>：十字固定在視窗中央，影像可在十字後方移動。</li>
                     </ul>
                 </div>
             </div>

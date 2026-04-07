@@ -26,6 +26,9 @@
             </div>
             <div class="header-controls">
                 <span class="status-indicator status-ready">System Ready</span>
+                <button id="themeToggleBtn" class="btn btn-ghost" title="切換深/淺色模式">
+                    <span id="themeIcon">🌙</span>
+                </button>
                 <button id="helpBtn" class="btn btn-ghost" title="使用說明">
                     <span>📖</span> 說明
                 </button>
@@ -81,7 +84,18 @@
                 <div class="controls-section">
                     <!-- ROI Settings -->
                     <div class="control-card">
-                        <h3>🎯 ROI 設定</h3>
+                        <h3>🔧 互動工具 (Tools)</h3>
+                        <div class="control-group checkbox-group" style="margin-bottom: 12px; gap: 12px;">
+                            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+                                <input type="radio" name="toolMode" value="roi" checked> 🎯 ROI
+                            </label>
+                            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+                                <input type="radio" name="toolMode" value="pan"> ✋ 平移
+                            </label>
+                        </div>
+                        
+                        <!-- ROI Settings -->
+                        <div id="roiSettingsSection">
                         <div class="control-group">
                             <label>ROI 半徑 (像素)</label>
                             <div class="input-with-unit">
@@ -96,11 +110,13 @@
                             </div>
                         </div>
                         <div id="roiListContainer" class="roi-list-container"></div>
-                        <div class="roi-buttons" style="display: flex; gap: 8px; margin-top: 8px;">
-                            <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled>⌫ 刪除上一個</button>
-                            <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除全部</button>
+                        <div class="roi-buttons">
+                            <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled>⌫ 刪除上一個 <span class="text-xs" style="opacity: 0.7">(Ctrl+Z)</span></button>
+                            <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除全部 <span class="text-xs" style="opacity: 0.7">(Del)</span></button>
                         </div>
                         <p class="hint">💡 點擊影像新增 ROI，Backspace 刪除</p>
+                        </div>
+                        
                     </div>
 
                     <!-- Zoom Control -->
@@ -137,12 +153,12 @@
                             <button id="rotatePlus1Btn" class="btn btn-secondary btn-sm">+1°</button>
                             <button id="rotatePlus45Btn" class="btn btn-secondary btn-sm">+45°</button>
                         </div>
-                        <div class="rotation-buttons" style="margin-top: 8px;">
+                        <div class="rotation-buttons mt-2">
                             <button id="rotate90LeftBtn" class="btn btn-secondary btn-sm">↺ -90°</button>
                             <button id="resetRotationBtn" class="btn btn-secondary btn-sm">🔄 重設</button>
                             <button id="rotate90RightBtn" class="btn btn-secondary btn-sm">↻ +90°</button>
                         </div>
-                        <div class="rotation-buttons" style="margin-top: 8px;">
+                        <div class="rotation-buttons mt-2">
                             <button id="applyRotationAllBtn" class="btn btn-primary btn-block btn-sm">📋
                                 套用至全部影像</button>
                         </div>
@@ -181,33 +197,43 @@
                     <!-- Grid Settings -->
                     <div class="control-card">
                         <h3>📏 格線設定</h3>
-                        <div class="control-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                            <input type="checkbox" id="gridToggle" style="width: 18px; height: 18px; cursor: pointer;">
-                            <label for="gridToggle" style="margin-bottom: 0; cursor: pointer; text-transform: none; letter-spacing: normal;">顯示中心十字 (Crosshair)</label>
+                        <div class="control-group checkbox-group">
+                            <input type="checkbox" id="gridToggle" class="checkbox-lg">
+                            <label for="gridToggle" class="checkbox-label">顯示品管格線 (Grid Overlay)</label>
                         </div>
                         <div class="grid-controls-inner hidden" id="gridControlsInner">
                             <div class="control-group">
                                 <label>格線模式</label>
-                                <select id="gridMode" style="width: 100%; padding: 8px; border-radius: var(--radius-sm); background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                                <select id="gridMode" class="form-select">
                                     <option value="moving">隨影像移動 (Attached)</option>
                                     <option value="fixed">固定在畫面上 (Fixed)</option>
                                 </select>
                             </div>
-                            <div class="control-group hidden">
+                            <div class="control-group">
                                 <label>間距 (像素)</label>
                                 <div class="input-with-unit">
                                     <input type="number" id="gridSpacing" value="50" min="5" max="500">
                                     <span>px</span>
+                                </div>
+                                <div class="preset-buttons mt-2" id="gridSpacingPresets">
+                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=20; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">20px</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=50; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">50px</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=100; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">100px</button>
+                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=200; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">200px</button>
                                 </div>
                             </div>
                         </div>
                         <p class="hint">💡 協助對齊與測量病灶大小</p>
                     </div>
 
-                    <!-- Display Tags Settings -->
+                    <!-- Display Tags & Raw DICOM -->
                     <div class="control-card">
-                        <h3>📋 影像標籤顯示</h3>
-                        <p class="hint" style="margin-bottom: 12px;">選擇要在影像上顯示的 DICOM 標籤資訊</p>
+                        <h3>📋 影像資訊與標籤</h3>
+                        <button id="rawHeaderBtn" class="btn btn-secondary btn-block btn-sm mb-3">
+                            🔍 檢視完整 DICOM 標頭 (Raw Data)
+                        </button>
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 12px 0;">
+                        <p class="hint mb-3">選擇要在影像上顯示的 DICOM 標籤資訊</p>
                         <button id="displayTagBtn" class="btn btn-primary btn-block btn-sm">
                             ⚙️ 設定顯示標籤
                         </button>
@@ -217,10 +243,10 @@
                     <!-- Analysis Controls -->
                     <div class="control-card">
                         <h3>📊 分析</h3>
-                        <div class="control-group" style="margin-bottom: 12px;">
+                        <div class="control-group mb-3">
                             <label>指定 Slice Location (選填)</label>
                             <input type="text" id="sliceLocationFilter" placeholder="例如: -50 或 100.5">
-                            <p class="hint" style="margin-top: 4px; font-size: 0.75rem;">若填寫，僅分析符合此位置的影像 (如 S0)</p>
+                            <p class="hint mt-1 text-xs">若填寫，僅分析符合此位置的影像 (如 S0)</p>
                         </div>
                         <button id="analyzeBtn" class="btn btn-primary btn-block" disabled>
                             ⚡ 分析全部影像
@@ -236,7 +262,7 @@
                             <label
                                 style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">🎯
                                 單張影像分析</label>
-                            <div class="single-analysis-controls" style="display: flex; gap: 8px;">
+                            <div class="single-analysis-controls">
                                 <select id="singleImageSelect" class="single-image-select"
                                     style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem;">
                                     <option value="">-- 選擇影像 --</option>
@@ -256,7 +282,7 @@
                                     </button>
                                 </div>
                             </div>
-                            <p class="hint" style="margin-top: 8px;">💡 選擇特定影像進行單獨分析</p>
+                            <p class="hint mt-2">💡 選擇特定影像進行單獨分析</p>
                         </div>
                     </div>
 
@@ -323,8 +349,12 @@
                             <td>平移影像 (Pan)</td>
                         </tr>
                         <tr>
-                            <td><kbd>Backspace</kbd></td>
-                            <td>刪除上一個 ROI</td>
+                            <td><kbd>Backspace</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td>
+                            <td>刪除上一個 ROI (復原)</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Delete</kbd></td>
+                            <td>清除全部 ROI</td>
                         </tr>
                     </table>
 
@@ -377,6 +407,37 @@
                 <div class="modal-footer">
                     <button id="cancelDisplayTagBtn" class="btn btn-secondary">取消</button>
                     <button id="confirmDisplayTagBtn" class="btn btn-primary">✓ 確認</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw DICOM Header Modal -->
+        <div id="rawHeaderModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large" style="width: 80%; max-width: 1000px; height: 80vh; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h2>🔍 完整 DICOM 標頭 (Raw Data)</h2>
+                    <button class="modal-close" id="closeRawHeaderBtn">✕</button>
+                </div>
+                <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+                    <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
+                        <input type="text" id="rawHeaderSearch" class="form-select" placeholder="🔍 搜尋標籤名稱、Tag ID 或數值...">
+                    </div>
+                    <div style="flex: 1; overflow-y: auto; padding: 0 16px 16px;">
+                        <table class="help-table" style="width: 100%; margin-top: 0;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 20%; text-align: left;">Tag</th>
+                                    <th style="width: 35%; text-align: left;">Name</th>
+                                    <th style="width: 10%; text-align: left;">VR</th>
+                                    <th style="width: 35%; text-align: left;">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rawHeaderTableBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

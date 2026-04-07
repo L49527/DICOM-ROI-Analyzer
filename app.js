@@ -80,7 +80,8 @@ const state = {
 
     // Web Worker for background analysis
     worker: null,
-    lastAnalysisMode: 'batch' // 'batch' or 'single'
+    lastAnalysisMode: 'batch', // 'batch' or 'single'
+    exportMode: 'batch'      // 'batch' or 'single' - For tag selection modal
 };
 
 // CT Presets
@@ -286,6 +287,7 @@ const elements = {
     analyzeBtn: null,
     singleResultActions: null,
     singleResultInfo: null,
+    singleResultTable: null,
     exportSingleBtn: null,
     analysisProgress: null,
     progressFill: null,
@@ -397,6 +399,7 @@ function populateElements() {
     elements.analyzeBtn = document.getElementById('analyzeBtn');
     elements.singleResultActions = document.getElementById('singleResultActions');
     elements.singleResultInfo = document.getElementById('singleResultInfo');
+    elements.singleResultTable = document.getElementById('singleResultTable');
     elements.exportSingleBtn = document.getElementById('exportSingleBtn');
     elements.analysisProgress = document.getElementById('analysisProgress');
     elements.progressFill = document.getElementById('progressFill');
@@ -449,6 +452,18 @@ function safeAddListener(element, event, handler, options = null) {
     }
 }
 
+
+function updateSystemStatus(mode) {
+    const indicator = document.querySelector('.status-indicator');
+    if (!indicator) return;
+    if (mode === 'compatibility') {
+        indicator.textContent = 'Compatibility Mode';
+        indicator.className = 'status-indicator status-warning';
+    } else {
+        indicator.textContent = 'System Ready';
+        indicator.className = 'status-indicator status-ready';
+    }
+}
 
 // ============================================
 // Initialization
@@ -583,15 +598,21 @@ function setupEventListeners() {
     safeAddListener(elements.analyzeBtn, 'click', runAnalysis);
     safeAddListener(elements.singleImageSelect, 'change', updateSingleAnalyzeButton);
     safeAddListener(elements.analyzeSingleBtn, 'click', runSingleImageAnalysis);
-    safeAddListener(elements.exportSingleBtn, 'click', exportSingleCSV);
-    safeAddListener(elements.exportBtn, 'click', openTagModal);
+    safeAddListener(elements.exportSingleBtn, 'click', () => openTagModal('single'));
+    safeAddListener(elements.exportBtn, 'click', () => openTagModal('batch'));
 
     // Modals
     safeAddListener(elements.helpBtn, 'click', () => showModal('helpModal'));
     safeAddListener(elements.closeHelpBtn, 'click', () => hideModal('helpModal'));
     safeAddListener(elements.closeTagBtn, 'click', () => hideModal('tagModal'));
     safeAddListener(elements.cancelExportBtn, 'click', () => hideModal('tagModal'));
-    safeAddListener(elements.confirmExportBtn, 'click', exportCSV);
+    safeAddListener(elements.confirmExportBtn, 'click', () => {
+        if (state.exportMode === 'single') {
+            exportSingleCSV();
+        } else {
+            exportCSV();
+        }
+    });
     safeAddListener(elements.selectAllTags, 'click', () => toggleAllTags(true));
     safeAddListener(elements.deselectAllTags, 'click', () => toggleAllTags(false));
 
@@ -613,13 +634,15 @@ function setupEventListeners() {
         if (window.Worker) {
             state.worker = new Worker('analysis-worker.js');
             state.worker.onmessage = handleWorkerMessage;
-            console.log('✅ Analysis Worker initialized.');
+            console.info('✅ Analysis Worker initialized.');
         } else {
-            console.warn('Web Worker not supported in this environment.');
+            state.worker = null;
+            updateSystemStatus('compatibility');
         }
     } catch (e) {
-        console.error('❌ Failed to initialize Web Worker:', e);
-        showToast('⚠️ 無法啟動背景分析模組 (可能是瀏覽器安全限制)，大批量分析時可能會卡頓', 'warning');
+        state.worker = null;
+        updateSystemStatus('compatibility');
+        showToast('⚠️ 無法啟動背景分析模組 (可能是 file:// 安全限制)，改用相容模式執行', 'warning', 6000);
     }
 
 
@@ -630,6 +653,7 @@ function setupEventListeners() {
             hideModal('helpModal');
             hideModal('tagModal');
             hideModal('displayTagModal');
+            hideModal('rawHeaderModal');
         });
     });
 
@@ -666,6 +690,11 @@ function finishAnalysis() {
     elements.analysisProgress.classList.add('hidden');
     elements.analyzeBtn.disabled = false;
     elements.exportBtn.disabled = false;
+    
+    // Dynamically populate available tags from results
+    if (state.results && state.results.length > 0) {
+        Object.keys(state.results[0]).forEach(tag => state.availableTags.add(tag));
+    }
     
     // Auto-select common tags for results table
     ['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD'].forEach(tag => state.selectedTags.add(tag));
@@ -782,7 +811,7 @@ async function loadDICOMFiles(files) {
         const fileNames = compressedFiles.slice(0, 3).map(f => f.file.name).join(', ');
         const moreCount = compressedFiles.length - 3;
         const moreText = moreCount > 0 ? `...等 ${compressedFiles.length} 個檔案` : '';
-        alert(`⚠️ 注意：偵測到壓縮格式的 DICOM 檔案\n\n${fileNames} ${moreText}\n\n本工具僅支援未壓縮 (Uncompressed) 的影像。壓縮的影像可能無法顯示 (會呈現黑色或雜訊)，這是正常的格式限制。`);
+        showToast(`⚠️ 偵測到壓縮格式 DICOM：${fileNames}${moreText}。本工具僅支援未壓縮影像，如有黑畫面為正常格式限制。`, 'warning', 8000);
     }
 
     if (state.files.length > 0) {
@@ -805,6 +834,11 @@ async function loadDICOMFiles(files) {
 // ============================================
 function loadImage(index) {
     if (index < 0 || index >= state.files.length) return;
+
+    // Hide single results when changing image
+    if (elements.singleResultActions) {
+        elements.singleResultActions.classList.add('hidden');
+    }
 
     try {
         state.currentIndex = index;
@@ -1625,6 +1659,18 @@ function updateSingleImageSelect() {
     if (state.currentIndex >= 0 && state.currentIndex < state.files.length) {
         select.value = state.currentIndex;
     }
+
+    // Handle Selection Change
+    elements.singleImageSelect.onchange = () => {
+        const index = parseInt(elements.singleImageSelect.value);
+        if (!isNaN(index)) {
+            state.currentIndex = index;
+            loadImage(index);
+            if (elements.singleResultActions) {
+                elements.singleResultActions.classList.add('hidden');
+            }
+        }
+    };
 }
 
 function updateSingleAnalyzeButton() {
@@ -1643,10 +1689,21 @@ async function runSingleImageAnalysis() {
     elements.progressFill.style.width = '0%';
     elements.progressText.textContent = '0%';
 
+    if (elements.singleResultActions) {
+        elements.singleResultActions.classList.add('hidden');
+    }
+
     state.lastAnalysisMode = 'single';
     state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
 
-    // Send to worker
+    // Fallback: if Worker unavailable, run on main thread
+    if (!state.worker) {
+        await runSingleMainThread(selectedIndex);
+        elements.analyzeSingleBtn.disabled = false;
+        elements.analysisProgress.classList.add('hidden');
+        return;
+    }
+
     state.worker.postMessage({
         command: 'analyze',
         data: {
@@ -1668,25 +1725,65 @@ function displaySingleAnalysisResults(results) {
         return;
     }
 
+    // Save results for export
+    state.singleResults = results;
     const first = results[0];
-    const resultLines = [
-        `📊 單張影像分析結果`,
-        ``,
-        `📁 檔案名稱: ${first.FileName}`,
-        `🎯 分析 ${state.roiCenters.length} 個 ROI:`,
-        ``
-    ];
+
+    // Build Table HTML
+    let tableHtml = `
+        <table>
+            <thead>
+                <tr>
+                    <th>ROI</th>
+                    <th>Mean (平均)</th>
+                    <th>SD (標偏)</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
 
     results.forEach(r => {
-        resultLines.push(`📍 ROI ${r.ROI_ID}: Mean=${r.ROI_Mean}, SD=${r.ROI_Noise_SD}`);
+        tableHtml += `
+            <tr>
+                <td>ROI ${r.ROI_ID}</td>
+                <td style="font-family: monospace;">${r.ROI_Mean}</td>
+                <td style="font-family: monospace;">${r.ROI_Noise_SD}</td>
+            </tr>
+        `;
     });
 
-    resultLines.push(``);
-    resultLines.push(`🖼️ 全圖平均: ${first.FullImage_Mean}`);
-    resultLines.push(`📈 全圖標準差: ${first.FullImage_SD}`);
+    tableHtml += `
+            </tbody>
+        </table>
+        <div class="full-stats">
+            <div class="stat-item">
+                <span class="stat-label">全圖平均 (Image Mean)</span>
+                <span class="stat-value">${first.FullImage_Mean}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">全圖標準差 (Image SD)</span>
+                <span class="stat-value">${first.FullImage_SD}</span>
+            </div>
+        </div>
+    `;
 
-    const resultText = resultLines.join('\n');
-    showToast(resultText, 'success', 8000);
+    // Display
+    if (elements.singleResultTable) {
+        elements.singleResultTable.innerHTML = tableHtml;
+    }
+
+    if (elements.singleResultInfo) {
+        elements.singleResultInfo.textContent = `📁 ${first.FileName}`;
+    }
+
+    if (elements.singleResultActions) {
+        elements.singleResultActions.classList.remove('hidden');
+    }
+
+    // Populate available tags for single analysis mode
+    if (results && results.length > 0) {
+        Object.keys(results[0]).forEach(tag => state.availableTags.add(tag));
+    }
 }
 
 async function runAnalysis() {
@@ -1695,12 +1792,6 @@ async function runAnalysis() {
     // Get filter value
     const filterValue = (elements.sliceLocationFilter && elements.sliceLocationFilter.value) ? elements.sliceLocationFilter.value.trim() : '';
     
-    // Prepare data for worker
-    const fileDataForWorker = state.files.map(f => ({
-        name: f.file.name,
-        buffer: f.byteArray.buffer
-    }));
-
     elements.analysisProgress.classList.remove('hidden');
     elements.analyzeBtn.disabled = true;
     elements.progressFill.style.width = '0%';
@@ -1708,6 +1799,22 @@ async function runAnalysis() {
 
     state.results = [];
     state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
+    state.lastAnalysisMode = 'batch';
+
+    // Fallback: if Worker unavailable, run on main thread
+    if (!state.worker) {
+        if (state.files.length > 30) {
+            showToast('⚠️ 相容模式：分析中，請稍候，畫面可能短暫無法操作', 'warning', 4000);
+        }
+        await runAnalysisMainThread(filterValue);
+        return;
+    }
+
+    // Prepare data for worker
+    const fileDataForWorker = state.files.map(f => ({
+        name: f.file.name,
+        buffer: f.byteArray.buffer
+    }));
 
     // Send to worker
     state.worker.postMessage({
@@ -1773,10 +1880,138 @@ function calculateROIStats(pixelData, cols, rows, center, radius) {
     return { mean, sd };
 }
 
+// 主執行緒降級 — 批次分析 (Compatibility Mode fallback)
+async function runAnalysisMainThread(filterValue) {
+    const BATCH_SIZE = 5;
+    const results = [];
+    const total = state.files.length;
+
+    for (let i = 0; i < total; i++) {
+        const f = state.files[i];
+
+        try {
+            // Apply slice location filter
+            if (filterValue) {
+                const sliceLoc = f.dataSet.string('x00201041') || '';
+                const filterNum = parseFloat(filterValue);
+                const sliceNum = parseFloat(sliceLoc);
+                const match = isNaN(filterNum)
+                    ? sliceLoc.includes(filterValue)
+                    : (!isNaN(sliceNum) && Math.abs(sliceNum - filterNum) < 0.001);
+                if (!match) { updateProgress(i + 1, total); continue; }
+            }
+
+            const pixelData = getPixelDataFromDataSet(f.dataSet, f.byteArray);
+            const rows = f.dataSet.uint16('x00280010');
+            const cols = f.dataSet.uint16('x00280011');
+
+            // Full image stats
+            let fSum = 0, fSumSq = 0;
+            for (let j = 0; j < pixelData.length; j++) {
+                fSum += pixelData[j];
+                fSumSq += pixelData[j] * pixelData[j];
+            }
+            const fullMean = fSum / pixelData.length;
+            const fullSD = Math.sqrt(fSumSq / pixelData.length - fullMean * fullMean);
+
+            // DICOM tags
+            const dicomTags = {};
+            for (const { tag, name: tagName } of COMMON_TAGS) {
+                const val = f.dataSet.string(tag);
+                if (val !== undefined) dicomTags[tagName] = val;
+            }
+
+            // Multi-ROI
+            for (let roiIdx = 0; roiIdx < state.roiCenters.length; roiIdx++) {
+                const center = state.roiCenters[roiIdx];
+                const roiStats = calculateROIStats(pixelData, cols, rows, center, state.roiRadius);
+                results.push({
+                    FileName: f.file.name,
+                    ROI_ID: roiIdx + 1,
+                    ROI_Mean: roiStats.mean.toFixed(4),
+                    ROI_Noise_SD: roiStats.sd.toFixed(4),
+                    FullImage_Mean: fullMean.toFixed(4),
+                    FullImage_SD: fullSD.toFixed(4),
+                    ROI_X: center.x,
+                    ROI_Y: center.y,
+                    ROI_R: state.roiRadius,
+                    ...dicomTags
+                });
+            }
+        } catch (err) {
+            console.error(`Error analyzing ${f.file.name}:`, err);
+        }
+
+        updateProgress(i + 1, total);
+
+        // Yield every BATCH_SIZE images to keep UI responsive
+        if ((i + 1) % BATCH_SIZE === 0) {
+            await new Promise(r => setTimeout(r, 0));
+        }
+    }
+
+    state.results = results;
+    finishAnalysis();
+}
+
+// 手動進度條更新（降級模式專用）
+function updateProgress(completed, total) {
+    const pct = Math.round(completed / total * 100);
+    if (elements.progressFill) elements.progressFill.style.width = `${pct}%`;
+    if (elements.progressText) elements.progressText.textContent = `${pct}% (${completed}/${total})`;
+}
+
+// 主執行緒降級 — 單張分析
+async function runSingleMainThread(selectedIndex) {
+    const f = state.files[selectedIndex];
+    if (!f) return;
+
+    state.lastAnalysisMode = 'single';
+    const pixelData = getPixelDataFromDataSet(f.dataSet, f.byteArray);
+    const rows = f.dataSet.uint16('x00280010');
+    const cols = f.dataSet.uint16('x00280011');
+
+    let fSum = 0, fSumSq = 0;
+    for (let j = 0; j < pixelData.length; j++) {
+        fSum += pixelData[j];
+        fSumSq += pixelData[j] * pixelData[j];
+    }
+    const fullMean = fSum / pixelData.length;
+    const fullSD = Math.sqrt(fSumSq / pixelData.length - fullMean * fullMean);
+
+    const dicomTags = {};
+    for (const { tag, name: tagName } of COMMON_TAGS) {
+        const val = f.dataSet.string(tag);
+        if (val !== undefined) dicomTags[tagName] = val;
+    }
+
+    const results = [];
+    for (let roiIdx = 0; roiIdx < state.roiCenters.length; roiIdx++) {
+        const center = state.roiCenters[roiIdx];
+        const roiStats = calculateROIStats(pixelData, cols, rows, center, state.roiRadius);
+        results.push({
+            FileName: f.file.name,
+            ROI_ID: roiIdx + 1,
+            ROI_Mean: roiStats.mean.toFixed(4),
+            ROI_Noise_SD: roiStats.sd.toFixed(4),
+            FullImage_Mean: fullMean.toFixed(4),
+            FullImage_SD: fullSD.toFixed(4),
+            ROI_X: center.x,
+            ROI_Y: center.y,
+            ROI_R: state.roiRadius,
+            ...dicomTags
+        });
+    }
+
+    updateProgress(1, 1);
+    displaySingleAnalysisResults(results);
+}
+
 // ============================================
 // Tag Selection & Export
 // ============================================
-function openTagModal() {
+function openTagModal(mode = 'batch') {
+    state.exportMode = mode;
     // Build tag list
     const tagList = elements.tagList;
     tagList.innerHTML = '';
@@ -1871,19 +2106,19 @@ function exportCSV() {
 
 function exportSingleCSV() {
     if (!state.singleResults || state.singleResults.length === 0) {
-        alert('尚無單張分析結果可匯出');
+        showToast('⚠️ 尚無單張分析結果可匯出', 'warning');
         return;
     }
 
     const results = state.singleResults;
+    const selectedTagsArray = Array.from(state.selectedTags);
 
-    // Build CSV with all available fields
-    const fields = Object.keys(results[0]);
-    let csv = fields.join(',') + '\n';
+    // Build CSV with selected tags
+    let csv = selectedTagsArray.join(',') + '\n';
 
     // Add each ROI result as a row
     for (const result of results) {
-        const row = fields.map(field => {
+        const row = selectedTagsArray.map(field => {
             const value = result[field] || '';
             // Escape quotes and wrap in quotes if contains comma
             if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
@@ -1905,6 +2140,8 @@ function exportSingleCSV() {
     a.download = `${baseName}_roi_analysis_${results.length}ROIs_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+
+    hideModal('tagModal');
 }
 
 // ============================================
@@ -2053,8 +2290,6 @@ function toggleAllDisplayTags(select) {
 
 function confirmDisplayTags() {
     state.displayTags = new Set(state.tempDisplayTags);
-    console.log('confirmDisplayTags: 已選擇標籤數量 =', state.displayTags.size);
-    console.log('選擇的標籤:', Array.from(state.displayTags));
     hideModal('displayTagModal');
     updateDisplayTagPreview();
     updateCustomTagsOverlay();

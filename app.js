@@ -666,23 +666,30 @@ function setupEventListeners() {
  * Handle messages from background worker
  */
 function handleWorkerMessage(e) {
-    const { type, completed, total, results, error } = e.data;
+    const { type, completed, total, results, message, fileName } = e.data;
 
     if (type === 'progress') {
         const progress = Math.round(completed / total * 100);
-        elements.progressFill.style.width = `${progress}%`;
-        elements.progressText.textContent = `${progress}% (${completed}/${total})`;
-    } else if (type === 'result') {
+        if (elements.progressFill) elements.progressFill.style.width = `${progress}%`;
+        if (elements.progressText) elements.progressText.textContent = `${progress}% (${completed}/${total})`;
+    } else if (type === 'result_chunk') {
         if (state.lastAnalysisMode === 'single') {
+            state.singleResults = results; // For single analysis, typically one chunk
             displaySingleAnalysisResults(results);
         } else {
-            state.results = results;
-            finishAnalysis();
+            // Batch mode: append chunks
+            if (!state.results) state.results = [];
+            state.results.push(...results);
         }
-    } else if (type === 'error') {
-        console.error('Worker Error:', error);
-        showToast('⚠️ 分析過程中發生錯誤: ' + error, 'error');
+    } else if (type === 'complete') {
         finishAnalysis();
+    } else if (type === 'error') {
+        console.error('Worker Error:', message, 'in', fileName);
+        const errorMsg = fileName ? `檔案 ${fileName}: ${message}` : message;
+        showToast('⚠️ 分析出錯: ' + errorMsg, 'error', 5000);
+        
+        // If it was just one file in batch, we might want to continue, 
+        // but currently we just keep track. The worker continues naturally.
     }
 }
 

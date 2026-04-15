@@ -89,9 +89,6 @@
                             <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
                                 <input type="radio" name="toolMode" value="roi" checked> 🎯 ROI
                             </label>
-                            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
-                                <input type="radio" name="toolMode" value="pan"> ✋ 平移
-                            </label>
                         </div>
                         
                         <!-- ROI Settings -->
@@ -200,6 +197,10 @@
                         <div class="control-group checkbox-group">
                             <input type="checkbox" id="gridToggle" class="checkbox-lg">
                             <label for="gridToggle" class="checkbox-label">顯示品管格線 (Grid Overlay)</label>
+                        </div>
+                        <div class="control-group checkbox-group" style="margin-top: -8px; margin-bottom: 12px; padding-left: 28px;">
+                            <input type="checkbox" id="lockCenter">
+                            <label for="lockCenter" class="checkbox-label" style="font-size: 0.8rem; opacity: 0.9;">固定目前中心 (Lock Current Position)</label>
                         </div>
                         <div class="grid-controls-inner hidden" id="gridControlsInner">
                             <div class="control-group">

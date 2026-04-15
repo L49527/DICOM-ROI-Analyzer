@@ -80,6 +80,7 @@ const state = {
 
     // Web Worker for background analysis
     worker: null,
+    lockCenter: false,       // Lock image to geometric center
     lastAnalysisMode: 'batch', // 'batch' or 'single'
     exportMode: 'batch'      // 'batch' or 'single' - For tag selection modal
 };
@@ -436,6 +437,7 @@ function populateElements() {
     elements.gridControlsInner = document.getElementById('gridControlsInner');
     elements.gridMode = document.getElementById('gridMode');
     elements.gridSpacing = document.getElementById('gridSpacing');
+    elements.lockCenter = document.getElementById('lockCenter');
     elements.crosshairOverlay = document.getElementById('crosshairOverlay');
     elements.imageContainerInner = document.getElementById('imageContainerInner');
 }
@@ -499,21 +501,11 @@ function setupEventListeners() {
         localStorage.setItem('dicom-roi-theme', newTheme);
     });
 
-    // Tools
-    if (elements.toolModeRadios) {
-        elements.toolModeRadios.forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                state.toolMode = e.target.value;
-                if (state.toolMode === 'roi') {
-                    if (elements.roiSettingsSection) elements.roiSettingsSection.classList.remove('hidden');
-                    if (elements.dicomCanvas) elements.dicomCanvas.style.cursor = 'crosshair';
-                } else { // pan
-                    if (elements.roiSettingsSection) elements.roiSettingsSection.classList.add('hidden');
-                    if (elements.dicomCanvas) elements.dicomCanvas.style.cursor = 'grab';
-                }
-            });
-        });
-    }
+    // Tools - Default to ROI since Pan tool UI was removed
+    // 工具模式 - 因介面已移除平移工具，預設為 ROI 模式
+    state.toolMode = 'roi';
+    if (elements.dicomCanvas) elements.dicomCanvas.style.cursor = 'crosshair';
+    if (elements.roiSettingsSection) elements.roiSettingsSection.classList.remove('hidden');
 
     // Modal listeners
     if (elements.rawHeaderBtn) {
@@ -628,6 +620,7 @@ function setupEventListeners() {
     safeAddListener(elements.gridToggle, 'change', handleGridToggle);
     safeAddListener(elements.gridMode, 'change', handleGridModeChange);
     safeAddListener(elements.gridSpacing, 'input', handleGridSpacingChange);
+    safeAddListener(elements.lockCenter, 'change', handleLockCenterChange);
 
     // Worker Detection (Placed at the end to prevent crashing other listeners)
     try {
@@ -730,40 +723,57 @@ async function handleDrop(e) {
 
     const items = e.dataTransfer.items;
     const files = [];
+    const queue = [];
+    let count = 0;
 
-    showLoading('正在讀取檔案...');
+    showLoading('正在讀取拖曳項目...');
 
+    // Initialize queue with top-level entries
+    // 使用頂層項目初始化佇列
     for (const item of items) {
         if (item.kind === 'file') {
             const entry = item.webkitGetAsEntry();
-            if (entry) {
-                await traverseFileTree(entry, files);
+            if (entry) queue.push(entry);
+        }
+    }
+
+    // Iterative queue processing for stability and UI responsiveness
+    // 使用迭代佇列處理以確保穩定性與 UI 反應能力
+    while (queue.length > 0) {
+        const entry = queue.shift();
+
+        if (entry.isFile) {
+            const file = await new Promise(resolve => entry.file(resolve));
+            files.push(file);
+            count++;
+
+            // Periodically update UI and yield to browser to handle dialogs
+            // 定期更新 UI 並向瀏覽器讓位，以便處理安全性對話框
+            if (count % 50 === 0) {
+                showLoading(`正在搜尋資料夾 (已找到 ${count} 個檔案)...`);
+                await new Promise(r => setTimeout(r, 0));
             }
+        } else if (entry.isDirectory) {
+            const reader = entry.createReader();
+            let batch;
+            do {
+                batch = await new Promise(resolve => reader.readEntries(resolve));
+                for (const child of batch) {
+                    queue.push(child);
+                }
+                // Yield to keep UI responsive during large directory reads
+                // 在讀取大型目錄時讓位以保持 UI 反應
+                await new Promise(r => setTimeout(r, 0));
+            } while (batch.length > 0);
         }
     }
 
     await loadDICOMFiles(files);
 }
 
-async function traverseFileTree(entry, files) {
-    if (entry.isFile) {
-        const file = await new Promise(resolve => entry.file(resolve));
-        files.push(file);
-    } else if (entry.isDirectory) {
-        const reader = entry.createReader();
-        // Must call readEntries repeatedly - Chrome returns entries in batches (~100)
-        // 必須重複呼叫 readEntries，Chrome 每次只回傳約 100 個項目
-        let allEntries = [];
-        let batch;
-        do {
-            batch = await new Promise(resolve => reader.readEntries(resolve));
-            allEntries = allEntries.concat(batch);
-        } while (batch.length > 0);
-        for (const childEntry of allEntries) {
-            await traverseFileTree(childEntry, files);
-        }
-    }
-}
+// Optimized traverseFileTree is now handled inlined in handleDrop's iterative queue
+// for better flow control and stability. 
+// (Removed separate traverseFileTree function to prevent confusion)
 
 async function handleFileSelect(e) {
     const files = Array.from(e.target.files);
@@ -773,35 +783,49 @@ async function handleFileSelect(e) {
 
 async function loadDICOMFiles(files) {
     state.files = [];
+    const total = files.length;
+    const batchSize = 25;
 
     try {
-        for (const file of files) {
-            let byteArray = null;
-            try {
-                const arrayBuffer = await file.arrayBuffer();
-                byteArray = new Uint8Array(arrayBuffer);
-                const dataSet = dicomParser.parseDicom(byteArray);
+        for (let i = 0; i < total; i += batchSize) {
+            const currentBatch = files.slice(i, i + batchSize);
+            
+            // Show dynamic progress progress
+            // 顯示動態讀取進度
+            showLoading(`正在讀取檔案 (${i + 1} - ${Math.min(i + batchSize, total)} / ${total})...`);
 
-                // Check if it has pixel data
-                if (dataSet.elements.x7fe00010) {
-                    state.files.push({
-                        file: file,
-                        dataSet: dataSet,
-                        byteArray: byteArray
-                    });
+            const results = await Promise.all(currentBatch.map(async (file) => {
+                let byteArray = null;
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    byteArray = new Uint8Array(arrayBuffer);
+                    const dataSet = dicomParser.parseDicom(byteArray);
+
+                    // Check if it has pixel data
+                    if (dataSet.elements.x7fe00010) {
+                        return {
+                            file: file,
+                            dataSet: dataSet,
+                            byteArray: byteArray
+                        };
+                    }
+                } catch (err) {
+                    console.error(`Error parsing file ${file.name}:`, err);
+                    if (err.message && err.message.includes('preamble')) {
+                        console.warn(`File ${file.name} is missing DICOM preamble.`);
+                    }
+                    if (byteArray) {
+                        const headBytes = byteArray.slice(0, 132);
+                        console.log(`File head snippet:`, headBytes);
+                    }
                 }
-            } catch (err) {
-                console.error(`Error parsing file ${file.name}:`, err);
-                // Diagnostic: check if it's missing preamble or has a different error
-                if (err.message && err.message.includes('preamble')) {
-                    console.warn(`File ${file.name} is missing DICOM preamble (DICM prefix at 128).`);
-                }
-                // Log first 132 bytes to help developer see what's inside
-                if (byteArray) {
-                    const headBytes = byteArray.slice(0, 132);
-                    console.log(`File head (first 132b):`, headBytes);
-                }
-            }
+                return null;
+            }));
+
+            // Filter valid DICOM files and add to state
+            results.forEach(res => {
+                if (res) state.files.push(res);
+            });
         }
     } finally {
         hideLoading();
@@ -1133,6 +1157,12 @@ function handleGridSpacingChange() {
     renderImage();
 }
 
+function handleLockCenterChange() {
+    state.lockCenter = elements.lockCenter.checked;
+    renderImage();
+}
+
+
 function updateGridDisplay() {
     if (state.showGrid && state.gridMode === 'fixed') {
         elements.crosshairOverlay.classList.remove('hidden');
@@ -1395,6 +1425,7 @@ function handleMouseDown(e) {
     }
     // Middle button or Space + left button - Pan
     if (e.button === 1 || (e.button === 0 && state.isSpaceHeld)) {
+        if (state.lockCenter) return; // Prevent pan when locked
         e.preventDefault();
         state.isPanning = true;
         state.panStartX = e.clientX;
@@ -1406,7 +1437,7 @@ function handleMouseDown(e) {
 }
 
 function handleMouseMove(e) {
-    if (state.isPanning) {
+    if (state.isPanning && !state.lockCenter) {
         state.panX = state.startPanX + (e.clientX - state.panStartX);
         state.panY = state.startPanY + (e.clientY - state.panStartY);
         updatePanTransform();
@@ -1542,11 +1573,26 @@ function adjustZoom(delta) {
 }
 
 function setZoom(value) {
+    const oldZoom = state.zoom;
+    const newZoom = value;
+    
+    // Prevent division by zero
+    // 防止除以零
+    const ratio = oldZoom > 0 ? (newZoom / oldZoom) : 1;
+
     state.zoom = value;
+    
+    // Scale pan to keep the point at screen center stable
+    // 縮放平移座標以保持位於螢幕中心的影像點位穩定
+    state.panX *= ratio;
+    state.panY *= ratio;
+    updatePanTransform();
+
     elements.zoomSlider.value = value;
     elements.zoomValue.textContent = value + '%';
     renderImage();
 }
+
 
 // ============================================
 // Fullscreen

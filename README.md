@@ -123,6 +123,64 @@
 - **邏輯精簡 (Logic Refinement)**:
   - 移除了 `app.js` 中不再需要的工具切換事件監聽器。 (Removed redundant tool-switching event listeners in `app.js`).
 
+## 2026-04-16: 深色模式配色優化 - 純黑主題 (Dark Mode Aesthetic Update - Pure Black)
+
+### 變更項目 (Changes):
+- **純黑背景 (Pure Black Background)**:
+  - 將 `style.css` 中的 `--bg-primary` 從 `#0f172a` 改為 `#000000`。 (Changed `--bg-primary` to `#000000` for deep AMOLED-friendly black).
+  - 更新影像容器 (`.image-container`) 背景為變數 `var(--bg-primary)`，確保與主題同步。 (Updated `.image-container` background to use variable for theme consistency).
+- **色調對比調整 (Contrast Adjustment)**:
+  - 調暗 `--bg-secondary`、`--bg-tertiary` 等屬性，改為極深灰色以維持層次感。 (Darkened secondary and tertiary backgrounds to maintain depth while remaining nearly black).
+  - 調整邊框顏色 (`--border-color`) 使其在純黑背景下仍清晰可辨。 (Adjusted border colors to remain visible on the pure black background).
+- **組件背景一致性 (Component Consistency)**:
+  - 修改單張分析結果表格背景，改用變數替代半透明遮罩。 (Modified single analysis result table to use variables instead of transparent masks).
+
 ### 技術摘要 (Technical Summary):
-- 簡化了 DOM 管理，預設將畫布游標設為 `crosshair` 並保持 ROI 設定面板可見。 (Simplified DOM management by defaulting the canvas cursor to `crosshair` and keeping the ROI settings panel visible).
-- 實現了「隱性工具 (Idle tools)」概念，將基礎平移功能轉移至物理按鍵而非介面按鈕，符合專業醫影工具習慣。 (Implemented "Implicit Tools" by moving basic panning to physical keys rather than UI buttons, adhering to professional medical imaging habits).
+- 優化了高對比環境下的視覺體驗。 (Improved visual experience for high-contrast environments).
+- 實現了真正的 AMOLED 純黑支援，減少長時間使用的眼睛疲勞。 (Implemented true AMOLED black support to reduce eye strain during prolonged use).
+
+## 2026-04-16: 修復 GitHub Pages 上「分析全部影像沒反應」問題 (Fix: Analysis Silently Fails on GitHub Pages)
+
+### 問題根源 (Root Cause):
+此問題由**兩個相互作用的 Bug** 所導致：
+
+1. **Worker `onerror` 未監聽 (Worker `onerror` Not Handled)**:
+   - GitHub Pages 使用 HTTPS 嚴格 CORS 政策，`importScripts` 在 Worker 中載入 `dicomParser.min.js` 可能因路徑解析規則不同而失敗。
+   - Worker 初始化時若 `importScripts` 拋出例外，`state.worker` 仍為非 null 物件，但實際上 Worker 完全無法運作。
+   - 主執行緒的 `postMessage` 送出後，永遠不會收到回應 → **按鈕按下後無任何反應**。
+   - Worker `importScripts` fails on GitHub Pages due to strict HTTPS CORS, but `state.worker` was still non-null, causing silent hang.
+
+2. **Buffer Detach 問題 (Buffer Detach Issue)**:
+   - `runAnalysis` 傳送 `f.byteArray.buffer` 給 Worker 時，若意外被列為 Transferable，主執行緒的 `byteArray` 會被「detach（歸零）」。
+   - 第二次按「分析全部」時，所有 buffer 均已是空的，Worker 靜默收到零位元組資料并出錯。
+   - Passing `f.byteArray.buffer` without `slice(0)` risked detaching the main thread's TypedArray views, breaking subsequent analyses.
+
+### 變更項目 (Changes):
+- **`app.js`**:
+  - **新增 `worker.onerror` 監聽器**: Worker 發生錯誤時自動將 `state.worker` 設為 `null` 並觸發主執行緒降級模式重新執行分析。 (Added `worker.onerror` to auto-fallback to main thread on any Worker error).
+  - **Buffer 複製保護**: 傳給 Worker 的 buffer 一律使用 `f.byteArray.buffer.slice(0)` 複製，確保主執行緒的 `dataSet` TypedArray view 永遠有效。 (Used `.slice(0)` to copy buffers before sending to Worker, protecting main thread data).
+  - **Buffer Detach 降級處理**: 若偵測到 buffer 已 detach，改用主執行緒相容模式重新分析。 (Added try/catch for detached buffer with fallback to main thread).
+
+- **`analysis-worker.js`**:
+  - **`importScripts` 保護**: 將 `importScripts` 包在 `try/catch` 中，失敗時立即 `postMessage` 通知主執行緒，確保 `worker.onerror` 能被觸發。 (Wrapped `importScripts` in try/catch to explicitly notify main thread on failure).
+  - **`_parserReady` 守衛旗標**: 在 `onmessage` 中加入守衛判斷，若解析器未就緒直接回傳錯誤而非靜默掛起。 (Added `_parserReady` guard flag to prevent silent hang when parser isn't loaded).
+
+### 技術摘要 (Technical Summary):
+- 解決了在 GitHub Pages (HTTPS) 環境下 Worker 靜默失敗的根本問題。 (Fixed silent Worker failure on GitHub Pages HTTPS environment).
+- 確保了多次點擊「分析全部」不會因 buffer detach 而失效。 (Ensured repeated analysis runs work correctly without buffer detachment issues).
+- 系統現在具備完整的「Worker 失敗 → 主執行緒自動接管」容錯機制。 (System now has complete fail-safe: Worker failure → auto fallback to main thread).
+
+## 2026-04-16: 移除「格線隨影像移動 (Attached)」模式 (Removal of Attached Grid Mode)
+
+### 變更項目 (Changes):
+- **介面簡化 (UI Simplification)**:
+  - 從 `index.html` 中移除了格線模式切換選單。 (Removed the grid mode selection menu from `index.html`).
+- **功能收斂 (Feature Consolidation)**:
+  - 系統現在預設且僅使用「固定在畫面上 (Fixed)」格線模式。 (The system now defaults to and exclusively uses the "Fixed" grid mode).
+  - 穩定了格線間距調整功能，確保其與固定格線模式完美相容。 (Stabilized grid spacing adjustments to ensure perfect compatibility with the fixed grid mode).
+- **程式碼優化 (Code Optimization)**:
+  - 移除了 `app.js` 中所有與移動格線繪製 (`drawMovingGrid`) 及模式切換 (`handleGridModeChange`) 相關的冗餘程式碼。 (Pruned all redundant code related to moving grid drawing and mode switching from `app.js`).
+
+### 技術摘要 (Technical Summary):
+- 簡化了格線系統的核心邏輯，減少不必要的 Canvas 重繪開銷。 (Simplified the core grid logic, reducing unnecessary canvas repaint overhead).
+- 提升了醫療影像品管 (QC) 中定位與測量的一致性。 (Improved consistency for positioning and measurement in medical imaging QC).

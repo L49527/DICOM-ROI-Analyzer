@@ -8,10 +8,34 @@
  * 3. Robustness: Improved error reporting and progress tracking.
  */
 
-// Import dicom-parser from local path
-importScripts('./dicomParser.min.js');
+// === KEY FIX: Wrap importScripts in try/catch so GitHub Pages failures are caught explicitly ===
+// === 關鍵修正：將 importScripts 包在 try/catch 中，以明確捕捉 GitHub Pages 上的失敗 ===
+let _parserReady = false;
+try {
+    importScripts('./dicomParser.min.js');
+    _parserReady = true;
+} catch (importErr) {
+    // Signal to main thread that the worker failed to initialize
+    // 通知主執行緒 Worker 初始化失敗
+    self.postMessage({
+        type: 'error',
+        message: 'Worker failed to load dicom-parser: ' + importErr.message,
+        fileName: null
+    });
+    // Throw so the worker's onerror event also fires on the main thread
+    // 拋出例外讓主執行緒的 worker.onerror 事件也能觸發
+    throw importErr;
+}
 
 self.onmessage = function(e) {
+    // Guard: if parser didn't load, report and stop
+    // 防禦：若解析器未載入，回報並停止
+    if (!_parserReady) {
+        self.postMessage({ type: 'error', message: 'dicom-parser not loaded in worker.', fileName: null });
+        self.postMessage({ type: 'complete' });
+        return;
+    }
+
     const { command, data } = e.data;
 
     if (command === 'analyze') {

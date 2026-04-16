@@ -50,18 +50,18 @@
 
 /* Dark Theme Overrides */
 [data-theme="dark"] {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-tertiary: #334155;
-    --bg-elevated: #475569;
+    --bg-primary: #000000;    /* 原為 #0f172a / Originally #0f172a */
+    --bg-secondary: #0a0a0a;  /* 原為 #1e293b / Originally #1e293b */
+    --bg-tertiary: #161b22;   /* 原為 #334155 / Originally #334155 */
+    --bg-elevated: #21262d;   /* 原為 #475569 / Originally #475569 */
 
     --text-primary: #f8fafc;
     --text-secondary: #cbd5e1;
     --text-muted: #94a3b8;
     --text-highlight: #ffffff;
 
-    --border-color: #334155;
-    --border-hover: #475569;
+    --border-color: #30363d;  /* 原為 #334155 / Originally #334155 */
+    --border-hover: #8b949e;  /* 原為 #475569 / Originally #475569 */
 }
 
 /* Reset & Base */
@@ -322,7 +322,7 @@ body {
 .image-container {
     flex: 1;
     position: relative;
-    background: #1a1a2e;
+    background: var(--bg-primary); /* 原為 #1a1a2e / Originally #1a1a2e */
     border-radius: var(--radius-md);
     overflow: hidden; /* Changed from auto to hidden for manual panning */
     border: 1px solid var(--border-color);
@@ -545,7 +545,7 @@ body {
 .single-result-table table {
     width: 100%;
     border-collapse: collapse;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-secondary); /* 原為 rgba(255, 255, 255, 0.03) / Originally rgba(255, 255, 255, 0.03) */
     border-radius: 4px;
     overflow: hidden;
 }

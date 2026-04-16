@@ -75,7 +75,7 @@ const state = {
 
     // Grid Settings
     showGrid: false,
-    gridMode: 'moving', // 'moving' or 'fixed'
+    gridMode: 'fixed', // 預設固定在畫面上 (Default to fixed on screen)
     gridSpacing: 50,
 
     // Web Worker for background analysis
@@ -618,15 +618,34 @@ function setupEventListeners() {
 
     // Grid Controls
     safeAddListener(elements.gridToggle, 'change', handleGridToggle);
-    safeAddListener(elements.gridMode, 'change', handleGridModeChange);
+
     safeAddListener(elements.gridSpacing, 'input', handleGridSpacingChange);
     safeAddListener(elements.lockCenter, 'change', handleLockCenterChange);
 
     // Worker Detection (Placed at the end to prevent crashing other listeners)
+    // 工作執行緒偵測（放在最後以防止影響其他事件監聽器）
     try {
         if (window.Worker) {
             state.worker = new Worker('analysis-worker.js');
             state.worker.onmessage = handleWorkerMessage;
+
+            // === KEY FIX: Handle worker errors (e.g. importScripts failure on GitHub Pages) ===
+            // === 關鍵修正：處理 Worker 錯誤（例如 GitHub Pages 上 importScripts 失敗）===
+            state.worker.onerror = function(err) {
+                console.warn('⚠️ Analysis Worker error, falling back to main thread mode:', err);
+                state.worker = null; // Disable worker to force fallback
+                // 停用 Worker 以強制降級到主執行緒
+                updateSystemStatus('compatibility');
+                showToast('⚠️ 背景分析模組錯誤，已自動切換至相容模式', 'warning', 5000);
+                // If analysis was in progress, restart it on main thread
+                // 若分析已在進行中，在主執行緒重新啟動
+                if (elements.analyzeBtn && elements.analyzeBtn.disabled) {
+                    const filterValue = (elements.sliceLocationFilter && elements.sliceLocationFilter.value)
+                        ? elements.sliceLocationFilter.value.trim() : '';
+                    runAnalysisMainThread(filterValue);
+                }
+            };
+
             console.info('✅ Analysis Worker initialized.');
         } else {
             state.worker = null;
@@ -1054,10 +1073,7 @@ function renderImage() {
     elements.ctx.imageSmoothingQuality = 'high';
     elements.ctx.drawImage(offCanvas, 0, 0, displayWidth, displayHeight);
 
-    // Draw Grid if in moving mode
-    if (state.showGrid && state.gridMode === 'moving') {
-        drawMovingGrid(elements.ctx, displayWidth, displayHeight, zoomFactor);
-    }
+
 
     // Draw multiple ROIs (隨旋轉同步顯示)
     const roiColors = ['#ff0000', '#00ff00', '#0080ff', '#ff8000', '#ff00ff', '#00ffff', '#ffff00', '#8000ff'];
@@ -1145,11 +1161,7 @@ function handleGridToggle() {
     renderImage();
 }
 
-function handleGridModeChange() {
-    state.gridMode = elements.gridMode.value;
-    updateGridDisplay();
-    renderImage();
-}
+
 
 function handleGridSpacingChange() {
     state.gridSpacing = parseInt(elements.gridSpacing.value) || 50;
@@ -1242,53 +1254,7 @@ function updatePanTransform() {
     }
 }
 
-function drawMovingGrid(ctx, width, height, zoom) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(0, 255, 100, 0.5)'; // Fluorescent green
-    ctx.lineWidth = 1;
 
-    const spacing = state.gridSpacing * zoom;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    // Draw full grid lines
-    ctx.beginPath();
-    
-    // Vertical lines (moving right and left from center)
-    for (let x = centerX; x <= width; x += spacing) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-    }
-    for (let x = centerX - spacing; x >= 0; x -= spacing) {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-    }
-
-    // Horizontal lines (moving up and down from center)
-    for (let y = centerY; y <= height; y += spacing) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-    }
-    for (let y = centerY - spacing; y >= 0; y -= spacing) {
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-    }
-    ctx.stroke();
-
-    // Draw Center Crosshair (Thicker and Highlighted)
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(0, 255, 100, 0.9)';
-    ctx.lineWidth = 2;
-    // V
-    ctx.moveTo(centerX, 0);
-    ctx.lineTo(centerX, height);
-    // H
-    ctx.moveTo(0, centerY);
-    ctx.lineTo(width, centerY);
-    ctx.stroke();
-
-    ctx.restore();
-}
 
 // Multi-ROI management functions
 function updateRoiControls() {
@@ -1863,13 +1829,32 @@ async function runAnalysis() {
         return;
     }
 
-    // Prepare data for worker
-    const fileDataForWorker = state.files.map(f => ({
-        name: f.file.name,
-        buffer: f.byteArray.buffer
-    }));
+    // === KEY FIX: Prepare data for worker using buffer COPIES (slice) ===
+    // === 關鍵修正：傳給 Worker 的 buffer 使用 slice(0) 複製，防止 Transferable detach 損壞主執行緒資料 ===
+    // Background: postMessage with ArrayBuffer as Transferable would detach (zero-out) the original,
+    // breaking the main thread's dataSet TypedArray views and image rendering.
+    // Without slice, a second analysis attempt would silently receive empty buffers.
+    // 若直接傳 ArrayBuffer 作為 Transferable，原始 buffer 會被 detach（歸零），
+    // 導致主執行緒的 dataSet TypedArray views 損壞，第二次分析將靜默地接收到空資料。
+    let fileDataForWorker;
+    try {
+        fileDataForWorker = state.files.map(f => ({
+            name: f.file.name,
+            buffer: f.byteArray.buffer.slice(0) // Copy, never transfer the original
+            // 複製 buffer，絕不 transfer 原始資料
+        }));
+    } catch (sliceErr) {
+        // If buffer is already detached (from a previous bad transfer), fall back to main thread
+        // 若 buffer 已被 detach（前一次錯誤 transfer 所致），降級到主執行緒
+        console.warn('Buffer already detached, falling back to main thread analysis:', sliceErr);
+        showToast('⚠️ 偵測到記憶體問題，改用相容模式重新分析', 'warning', 4000);
+        state.worker = null;
+        await runAnalysisMainThread(filterValue);
+        return;
+    }
 
-    // Send to worker
+    // Send to worker (no transfer list — data is copied, not transferred)
+    // 傳給 Worker（不列入 transfer list — 資料是複製的，不是轉移的）
     state.worker.postMessage({
         command: 'analyze',
         data: {

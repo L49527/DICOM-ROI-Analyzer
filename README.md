@@ -184,3 +184,16 @@
 ### 技術摘要 (Technical Summary):
 - 簡化了格線系統的核心邏輯，減少不必要的 Canvas 重繪開銷。 (Simplified the core grid logic, reducing unnecessary canvas repaint overhead).
 - 提升了醫療影像品管 (QC) 中定位與測量的一致性。 (Improved consistency for positioning and measurement in medical imaging QC).
+
+## 2026-04-16: 優化批次分析效能，修復分析卡住的問題 (Performance Optimization: Fix Batch Analysis Freeze)
+
+### 變更項目 (Changes):
+- **批次分析改為串流處理 (Streaming Batch Analysis)**:
+  - 移除了過去將所有 DICOM 影像資料一次性完整複製並傳送給 Worker 的寫法，改為「逐張傳遞與處理」的佇列機制。 (Replaced the logic that copied and sent all DICOM data to the Worker at once with a queue mechanism that processes one image at a time).
+  - 解決了在分析大量高解析度影像時，因瞬間產生巨大的記憶體配置而導致的頁面凍結 (Out Of Memory) 與死鎖問題。 (Resolved page freezing and OOM deadlocks caused by massive memory allocations when analyzing a large number of high-resolution images).
+- **增強分析 Worker (Enhanced Worker)**:
+  - 為 `analysis-worker.js` 新增了 `analyze_chunk` 與 `analyze_single` 指令，能夠有效地回應單張進度，並能於單張分析錯誤時自動跳過繼續處理下一張影像。 (Added `analyze_chunk` and `analyze_single` commands to `analysis-worker.js`, enabling efficient progress reporting per image and automatic fallback on individual image errors).
+
+### 技術摘要 (Technical Summary):
+- 將 O(N) 的主執行緒記憶體使用量降至 O(1)。 (Reduced main thread memory footprint during transfer from O(N) to O(1)).
+- 有效解決 GitHub Pages 等託管平台上頻繁出現的分析死鎖 (Freeze) 問題。 (Effectively solved the analysis deadlock/freeze issue frequently encountered on hosted platforms like GitHub Pages).

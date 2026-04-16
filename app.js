@@ -693,6 +693,23 @@ function handleWorkerMessage(e) {
             if (!state.results) state.results = [];
             state.results.push(...results);
         }
+    } else if (type === 'chunk_complete') {
+        if (results && results.length > 0) {
+            if (!state.results) state.results = [];
+            state.results.push(...results);
+        }
+        state.analysisQueueIndex++;
+        const totalCount = state.files.length;
+        const progress = Math.round(state.analysisQueueIndex / totalCount * 100);
+        if (elements.progressFill) elements.progressFill.style.width = `${progress}%`;
+        if (elements.progressText) elements.progressText.textContent = `${progress}% (${state.analysisQueueIndex}/${totalCount})`;
+        
+        processNextAnalysisChunk();
+
+    } else if (type === 'single_complete') {
+        state.singleResults = results;
+        displaySingleAnalysisResults(results);
+
     } else if (type === 'complete') {
         finishAnalysis();
     } else if (type === 'error') {
@@ -700,8 +717,11 @@ function handleWorkerMessage(e) {
         const errorMsg = fileName ? `檔案 ${fileName}: ${message}` : message;
         showToast('⚠️ 分析出錯: ' + errorMsg, 'error', 5000);
         
-        // If it was just one file in batch, we might want to continue, 
-        // but currently we just keep track. The worker continues naturally.
+        // On chunk error, just continue to next file
+        if (typeof state.analysisQueueIndex !== 'undefined') {
+            state.analysisQueueIndex++;
+            processNextAnalysisChunk();
+        }
     }
 }
 
@@ -1723,14 +1743,19 @@ async function runSingleImageAnalysis() {
         return;
     }
 
+    let copiedBuffer;
+    try {
+        copiedBuffer = byteArray.buffer.slice(0);
+    } catch(e) { copiedBuffer = byteArray.buffer; }
+
     state.worker.postMessage({
-        command: 'analyze',
+        command: 'analyze_single',
         data: {
-            files: [{ name: file.name, buffer: byteArray.buffer }],
+            file: { name: file.name, buffer: copiedBuffer },
             roiCenters: state.roiCenters,
             roiRadius: state.roiRadius,
             commonTags: COMMON_TAGS,
-            filterValue: null // No filter for single image
+            filterValue: null
         }
     });
 }
@@ -1829,40 +1854,40 @@ async function runAnalysis() {
         return;
     }
 
-    // === KEY FIX: Prepare data for worker using buffer COPIES (slice) ===
-    // === 關鍵修正：傳給 Worker 的 buffer 使用 slice(0) 複製，防止 Transferable detach 損壞主執行緒資料 ===
-    // Background: postMessage with ArrayBuffer as Transferable would detach (zero-out) the original,
-    // breaking the main thread's dataSet TypedArray views and image rendering.
-    // Without slice, a second analysis attempt would silently receive empty buffers.
-    // 若直接傳 ArrayBuffer 作為 Transferable，原始 buffer 會被 detach（歸零），
-    // 導致主執行緒的 dataSet TypedArray views 損壞，第二次分析將靜默地接收到空資料。
-    let fileDataForWorker;
-    try {
-        fileDataForWorker = state.files.map(f => ({
-            name: f.file.name,
-            buffer: f.byteArray.buffer.slice(0) // Copy, never transfer the original
-            // 複製 buffer，絕不 transfer 原始資料
-        }));
-    } catch (sliceErr) {
-        // If buffer is already detached (from a previous bad transfer), fall back to main thread
-        // 若 buffer 已被 detach（前一次錯誤 transfer 所致），降級到主執行緒
-        console.warn('Buffer already detached, falling back to main thread analysis:', sliceErr);
-        showToast('⚠️ 偵測到記憶體問題，改用相容模式重新分析', 'warning', 4000);
-        state.worker = null;
-        await runAnalysisMainThread(filterValue);
+    // To prevent memory spike/freeze on GitHub pages, use batch streaming instead of creating memory copies at once
+    state.analysisQueueIndex = 0;
+    state.analysisFilterValue = filterValue;
+    processNextAnalysisChunk();
+}
+
+function processNextAnalysisChunk() {
+    if (!state.files || state.analysisQueueIndex >= state.files.length) {
+        finishAnalysis();
         return;
     }
 
-    // Send to worker (no transfer list — data is copied, not transferred)
-    // 傳給 Worker（不列入 transfer list — 資料是複製的，不是轉移的）
+    const f = state.files[state.analysisQueueIndex];
+    let copiedBuffer;
+    try {
+        copiedBuffer = f.byteArray.buffer.slice(0); // Only copy 1 at a time to prevent CPU/memory spikes!
+    } catch (sliceErr) {
+        console.warn('Buffer detach detected, falling back:', sliceErr);
+        showToast('⚠️ 記憶體錯誤，切換相容模式後將自動接續', 'warning', 4000);
+        state.worker = null;
+        runAnalysisMainThread(state.analysisFilterValue); // Continue on main thread
+        return;
+    }
+
     state.worker.postMessage({
-        command: 'analyze',
+        command: 'analyze_chunk',
         data: {
-            files: fileDataForWorker,
+            file: { name: f.file.name, buffer: copiedBuffer },
             roiCenters: state.roiCenters,
             roiRadius: state.roiRadius,
             commonTags: COMMON_TAGS,
-            filterValue: filterValue
+            filterValue: state.analysisFilterValue,
+            chunkIndex: state.analysisQueueIndex,
+            totalItems: state.files.length
         }
     });
 }

@@ -134,6 +134,82 @@ self.onmessage = function(e) {
 
         // Final completion message
         self.postMessage({ type: 'complete' });
+
+    } else if (command === 'analyze_chunk' || command === 'analyze_single') {
+        const { file, roiCenters, roiRadius, commonTags, filterValue } = data;
+        const chunkIndex = command === 'analyze_chunk' ? data.chunkIndex : 0;
+        const completeType = command === 'analyze_chunk' ? 'chunk_complete' : 'single_complete';
+        const fileResults = [];
+
+        try {
+            const byteArray = new Uint8Array(file.buffer);
+            const dataSet = dicomParser.parseDicom(byteArray);
+
+            // 1. Apply Slice Location Filter
+            if (filterValue) {
+                const sliceLoc = dataSet.string('x00201041') || '';
+                if (!isMatch(sliceLoc, filterValue)) {
+                    self.postMessage({ type: completeType, results: [], chunkIndex, skipped: true });
+                    return;
+                }
+            }
+
+            // 2. Check if pixel data exists
+            if (!dataSet.elements.x7fe00010) {
+                throw new Error('No pixel data found in DICOM file.');
+            }
+
+            // 3. Extract Raw Pixel Info
+            const { pixels, slope, intercept } = getPixelDataInfo(dataSet, byteArray);
+            const rows = dataSet.uint16('x00280010');
+            const cols = dataSet.uint16('x00280011');
+            const N = pixels.length;
+
+            // 4. Calculate Full Image Stats
+            let sumRaw = 0, sumSqRaw = 0;
+            for (let j = 0; j < N; j++) {
+                const v = pixels[j];
+                sumRaw += v;
+                sumSqRaw += v * v;
+            }
+
+            const fullMean = (sumRaw / N) * slope + intercept;
+            const rawMean = sumRaw / N;
+            const rawVar = Math.max(0, (sumSqRaw / N) - (rawMean * rawMean));
+            const fullSD = Math.sqrt(rawVar) * Math.abs(slope);
+
+            // 5. Extract Common Tags
+            const dicomTags = {};
+            for (const { tag, name: tagName } of commonTags) {
+                const val = dataSet.string(tag);
+                if (val !== undefined) dicomTags[tagName] = val;
+            }
+
+            // 6. Multi-ROI Analysis
+            for (let roiIdx = 0; roiIdx < roiCenters.length; roiIdx++) {
+                const center = roiCenters[roiIdx];
+                const roiStats = calculateROIStatsOptimized(pixels, cols, rows, center, roiRadius, slope, intercept);
+
+                fileResults.push({
+                    FileName: file.name,
+                    ROI_ID: roiIdx + 1,
+                    ROI_Mean: roiStats.mean.toFixed(4),
+                    ROI_Noise_SD: roiStats.sd.toFixed(4),
+                    FullImage_Mean: fullMean.toFixed(4),
+                    FullImage_SD: fullSD.toFixed(4),
+                    ROI_X: center.x,
+                    ROI_Y: center.y,
+                    ROI_R: roiRadius,
+                    ...dicomTags
+                });
+            }
+
+            self.postMessage({ type: completeType, results: fileResults, chunkIndex, skipped: false });
+
+        } catch (err) {
+            self.postMessage({ type: 'error', message: err.message, fileName: file.name });
+            self.postMessage({ type: completeType, results: [], chunkIndex, skipped: true });
+        }
     }
 };
 

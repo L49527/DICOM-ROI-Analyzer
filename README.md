@@ -1,5 +1,48 @@
 # DICOM ROI Analyzer 修改紀錄 (Change Log)
 
+## 2026-05-20 (v2): 優化國際學術期刊格式與修復點擊 ROI Bug (Optimized International Academic Style & Fixed Click ROI Bug)
+
+### 變更項目 (Changes):
+- **預設啟用國際學術期刊格式 (Default Academic Style)**:
+  - 在剖面線詳細分析彈窗中，圖表預設即啟用「🎓 學術期刊格式 (Academic Style)」。 (The detailed line profile chart in the modal now defaults to "Academic Style" immediately upon opening).
+  - 學術期刊格式採用國際頂尖學術出版物（如 Nature, IEEE 等）的專業排版規格：純白底色、Times New Roman 字型、純黑 L 型座標軸實線、向外突出的精細刻度線 (Outward Ticks)、無色彩漸層發光的高對比剖面折線，極致精確。 (Conforms to top publication specs: pure white background, Times New Roman font, solid black L-frame axes, outward ticks, and high-contrast curve without neon gradients).
+  - 極值標記 (MAX / MIN) 精簡為紅藍小圓點與斜體文字標籤，平均值 (MEAN) 精簡為深灰水平虛線與斜體標記，移除科技感發光陰影，回歸學術純粹。 (Extremes and Mean are drawn with simple dots, dashed lines, and italic labels without glow effects for publication-grade neatness).
+- **一鍵下載 300 DPI 級別超高解析度學術圖表 (One-click 300 DPI Equivalent Export)**:
+  - 實作了離線 Canvas 背景渲染技術，支持在背景建立高達 **2400x1500** 像素的離線畫布，呼叫 `drawProfileChart` 將內容完美輸出為無鋸齒、高對比的 PNG 圖表。 (Implemented background offline canvas rendering at 2400x1500 pixels to export perfectly sharp, aliasing-free PNG figures).
+  - 結合比例因子 `scaleFactor` 動態調整文字大小、線條寬度、內邊距、刻度與標籤長度，保證在高解析度輸出時完美比例不失真。 (Uses a dynamic `scaleFactor` to scale font sizes, line widths, padding, ticks, and labels proportionally to guarantee perfectly balanced graphics at high resolution).
+- **徹底修復 Line Profile 模式下的 ROI 誤觸 Bug (Resolved ROI Placement Bug in Profile Mode)**:
+  - 修正了 `handleCanvasClick` 滑鼠左鍵點擊影像時的判定邏輯，加入 `if (state.toolMode !== 'roi') return;` 限制。 (Restrained `handleCanvasClick` to tool mode 'roi' to prevent clicks from generating ROI markers in other modes).
+  - 現在切換到「線段剖面 (Line Profile)」模式下在影像上繪線時，絕不會在起點或終點誤新增圓形 ROI 標記，徹底維持了多模式分析的一致性。 (Drawing profile lines will no longer place circle ROIs under the cursor, maintaining complete interaction safety).
+
+### 技術摘要 (Technical Summary):
+- 實作了依據寬度等比縮放 Canvas 元素的排版渲染引擎。 (Implemented a proportional typography scaling engine for Canvas rendering).
+- 將傳統的 Canvas 水平格線在學術模式下智慧變更為專業向外刻度 Ticks，完美契合國際投稿要求。 (Replaced background grids with professional outward ticks under Academic style, fully complying with top-tier journal submission standards).
+- 確保所有新增程式碼、說明文件及註解皆採用完全雙語（繁體中文與英文對照）以保留開發紀錄。 (Ensured all new code, documentations, and comments are fully bilingual side-by-side to preserve developer log history).
+
+## 2026-05-20: 新增互動式「線段剖面」讀值與圖表功能 (Added Interactive Line Profile Feature)
+
+### 變更項目 (Changes):
+- **即時滑鼠拖曳劃線 (Real-time Drag-to-Draw)**:
+  - 支援在「線段剖面」模式下使用滑鼠在影像上直接拖曳繪線的即時互動。 (Implemented real-time mouse drag-to-draw interaction in Line Profile mode).
+  - 影像旋轉及縮放時，主畫布上繪製的剖面線段、兩端控制點與 "S"（起點）、"E"（終點）標籤可自動同步對齊並保持幾何精確。 (Line drawing, end handles, and 'S' / 'E' labels dynamically align and scale perfectly under zoom and rotation).
+- **高清晰度雙主題畫布圖表 (Crisp Canvas Profile Charting)**:
+  - 自底層使用純 HTML5 Canvas 2D 實作高效能、無依賴的折線剖面圖表渲染。 (Built high-performance, dependency-free profile line chart rendering from scratch using Canvas 2D).
+  - 實作了動態畫布分辨率調整機制，在 Retina 等高分屏上亦能確保 100% 的極致清晰，徹底消除拉伸模糊。 (Implemented dynamic client-size canvas resolution synchronization to achieve 100% crisp visuals, eliminating stretch blur).
+  - 折線下方填充了青色半透明漸變，並能自動標記數值峰值點 (MAX / MIN) 以及平均值水平線 (MEAN)，科技感十足。 (Added a sleek cyan gradient area fill, highlighted MAX/MIN peak markers, and drew a MEAN horizontal guide line).
+  - 圖表格線、文字與背景色彩完全依據 DOM CSS 變數動態切換，完美自適應深色 (AMOLED Black) 與淺色主題。 (Chart grids, text, and colors fully adapt to DOM CSS variables to support light and dark/pure black themes).
+- **多維度物理長度計算 (Multi-dimensional Distance Calibration)**:
+  - 自動讀取 DICOM Tag `x00280030` 中的 Pixel Spacing（像素間距）屬性，精確計算出沿線段的物理距離 (mm)。 (Extracts Pixel Spacing tag `x00280030` to calculate physical distance along the line in millimeters).
+  - 在側邊欄與詳細彈窗中，同步顯示像素長度 (px) 與物理長度 (mm)。 (Syncs and displays lengths in both pixels and millimeters in the sidebar and detailed modal).
+- **座標讀值表格與 CSV 數據匯出 (Detailed Data Table & CSV Export)**:
+  - 詳細資訊彈窗中包含完整的座標清單表格，展示每一點的索引、座標 (X, Y)、分段距離與對應像素讀值。 (Detailed modal populates an interactive table of indices, coordinates, distances, and pixel values).
+  - 實作了 `exportLineProfileToCSV` 函式，支援帶有 UTF-8 BOM 的 CSV 資料匯出，完美相容 Excel 中的繁體中文字元。 (Added CSV exporter with UTF-8 BOM supporting seamless bilingual character rendering in Excel).
+- **影像切片載入同步 (Slice Navigation Sync)**:
+  - 當切換或重新載入影像切片時，系統會自動在 `loadImage` 末尾判定並重新計算當前線段位置在該切片上的剖面讀值並更新 UI，維持絕佳的切片導航一致性。 (Triggers auto-recalculation and chart refreshes on slice navigation inside `loadImage` if a line profile exists).
+
+### 技術摘要 (Technical Summary):
+- 實作了線性插值 (Linear Interpolation) 採樣演算法，高效且均勻地提取線段上每一像素的值。 (Implemented a linear interpolation sampling algorithm to extract pixel values uniformly).
+- 完全避免了引入龐大的 Chart.js 等第三方函式庫，維持了醫療級系統的加載速度與代碼安全性。 (Avoided bloating the codebase with heavy libraries like Chart.js, maintaining raw load speed and medical system safety).
+- 提供完全繁體中文與英文對照 (Traditional Chinese & English) 的雙語使用者介面與註解。 (Maintains complete bilingual side-by-side localization across all UI layouts and code comments).
 ## 2026-04-07: 單張分析匯出功能擴充 (Single Image Export Enhancement)
 
 ### 變更項目 (Changes):

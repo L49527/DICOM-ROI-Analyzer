@@ -89,19 +89,22 @@
                             <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
                                 <input type="radio" name="toolMode" value="roi" checked> 🎯 ROI
                             </label>
+                            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+                                <input type="radio" name="toolMode" value="line"> 📏 Line Profile (線段讀值)
+                            </label>
                         </div>
                         
                         <!-- ROI Settings -->
                         <div id="roiSettingsSection">
                         <div class="control-group">
-                            <label>ROI 半徑 (像素)</label>
+                            <label>ROI 半徑 (像素) / ROI Radius (px)</label>
                             <div class="input-with-unit">
                                 <input type="number" id="roiRadius" value="25" min="5" max="200">
                                 <span>px</span>
                             </div>
                         </div>
                         <div class="control-group">
-                            <label>已放置 ROI</label>
+                            <label>已放置 ROI / Placed ROIs</label>
                             <div class="roi-count-display">
                                 <span id="roiCount">0</span> 個
                             </div>
@@ -112,6 +115,39 @@
                             <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除全部 <span class="text-xs" style="opacity: 0.7">(Del)</span></button>
                         </div>
                         <p class="hint">💡 點擊影像新增 ROI，Backspace 刪除</p>
+                        </div>
+
+                        <!-- Line Settings Section / 線段讀值設定區塊 -->
+                        <div id="lineSettingsSection" class="hidden">
+                            <div class="control-group">
+                                <label>起點 / Start (S)</label>
+                                <div class="position-display" style="font-size: 0.85rem;">
+                                    <span>X: <strong id="lineStartX">--</strong></span>
+                                    <span>Y: <strong id="lineStartY">--</strong></span>
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>終點 / End (E)</label>
+                                <div class="position-display" style="font-size: 0.85rem;">
+                                    <span>X: <strong id="lineEndX">--</strong></span>
+                                    <span>Y: <strong id="lineEndY">--</strong></span>
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>線段長度 / Length</label>
+                                <div id="lineLengthDisplay" style="font-size: 0.85rem; font-weight: 600; padding: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                                    -- px
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>即時剖面圖 / Real-time Profile</label>
+                                <canvas id="lineProfileCanvas" width="280" height="150" style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; display: block; width: 100%; height: 120px;"></canvas>
+                            </div>
+                            <div class="roi-buttons">
+                                <button id="clearLineBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除線段</button>
+                                <button id="openLineDetailBtn" class="btn btn-primary btn-sm" style="flex: 1.2;" disabled>🔍 完整數據</button>
+                            </div>
+                            <p class="hint">💡 左鍵拖曳以繪製量測線段</p>
                         </div>
                         
                     </div>
@@ -433,6 +469,65 @@
                                 <!-- Populated dynamically -->
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Profile Detail Modal / 線段讀值詳細分析彈窗 -->
+        <div id="lineDetailModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large" style="width: 85%; max-width: 900px; height: 85vh; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h2>📏 Line Profile 線段讀值詳細分析</h2>
+                    <button class="modal-close" id="closeLineDetailBtn">✕</button>
+                </div>
+                <div class="modal-body" style="flex: 1; display: flex; flex-direction: row; gap: 16px; overflow: hidden; padding: 16px;">
+                    <!-- Left: Large Chart / 左側：大型剖面圖 -->
+                    <div style="flex: 2; display: flex; flex-direction: column; gap: 12px; min-width: 0;">
+                        <div style="flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; position: relative;">
+                            <canvas id="largeProfileCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
+                        </div>
+                        <div class="chart-style-controls" style="display: flex; gap: var(--spacing-md); align-items: center; background: var(--bg-tertiary); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">
+                                <input type="checkbox" id="academicStyleToggle" checked style="cursor: pointer; width: 15px; height: 15px;"> 🎓 學術期刊格式 (Academic Style)
+                            </label>
+                            <div style="flex-grow: 1;"></div>
+                            <button id="downloadAcademicBtn" class="btn btn-primary btn-sm" style="margin: 0; padding: 6px 12px;">
+                                📷 匯出學術圖表 (PNG)
+                            </button>
+                        </div>
+                        <div class="line-summary-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">
+                            <div class="control-card" style="padding: 10px; margin: 0;">
+                                <strong>起點 / Start (S):</strong> <span id="modalLineStart">--</span><br>
+                                <strong>終點 / End (E):</strong> <span id="modalLineEnd">--</span>
+                            </div>
+                            <div class="control-card" style="padding: 10px; margin: 0;">
+                                <strong>線段長度 / Length:</strong> <span id="modalLineLength">--</span><br>
+                                <strong>統計 / Stats:</strong> Max: <span id="modalLineMax">--</span> | Min: <span id="modalLineMin">--</span> | Mean: <span id="modalLineMean">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Right: Data Table / 右側：數據列表 -->
+                    <div style="flex: 1.2; display: flex; flex-direction: column; border-left: 1px solid var(--border-color); padding-left: 16px; height: 100%; overflow: hidden;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <h3 style="margin: 0; font-size: 0.95rem; color: var(--accent-primary);">數據清單 (Data Points)</h3>
+                            <button id="exportLineCsvBtn" class="btn btn-success btn-sm">📥 匯出 CSV</button>
+                        </div>
+                        <div style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary);">
+                            <table class="help-table" style="width: 100%; margin-top: 0; font-size: 0.8rem;">
+                                <thead>
+                                    <tr style="position: sticky; top: 0; background: var(--bg-secondary); z-index: 10;">
+                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">Index</th>
+                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">距離 (Distance)</th>
+                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">讀值 (Value)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lineDataTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>

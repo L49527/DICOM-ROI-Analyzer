@@ -1280,3 +1280,58 @@ body {
     font-size: 0.85rem;
     color: var(--text-secondary);
 }
+
+/* ============================================
+   Line Profile Feature Styles / 線段讀值功能樣式
+   ============================================ */
+#lineSettingsSection {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    animation: fadeIn 0.3s ease;
+}
+
+#lineProfileCanvas {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Modal layout details for Line Profile Modal / 線段讀值彈窗排版細節 */
+#lineDetailModal .modal-content {
+    max-width: 950px;
+    height: 85vh;
+}
+
+#lineDetailModal .line-summary-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+#lineDetailModal .control-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    margin: 0;
+}
+
+#largeProfileCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    box-sizing: border-box;
+}
+
+#lineDataTableBody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}

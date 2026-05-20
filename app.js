@@ -82,7 +82,14 @@ const state = {
     worker: null,
     lockCenter: false,       // Lock image to geometric center
     lastAnalysisMode: 'batch', // 'batch' or 'single'
-    exportMode: 'batch'      // 'batch' or 'single' - For tag selection modal
+    exportMode: 'batch',      // 'batch' or 'single' - For tag selection modal
+
+    // Line Profile / 線段剖面
+    lineStart: null,        // {x, y} in image coordinates
+    lineEnd: null,          // {x, y} in image coordinates
+    isDrawingLine: false,   // Flag for drawing interaction
+    lineProfileData: [],    // Sampled readings along the line
+    academicStyle: true     // Default to Academic Style for publication / 預設為學術期刊格式
 };
 
 // CT Presets
@@ -339,7 +346,31 @@ const elements = {
     gridMode: null,
     gridSpacing: null,
     crosshairOverlay: null,
-    imageContainerInner: null
+    imageContainerInner: null,
+
+    // Line Profile Elements / 線段剖面元素
+    lineSettingsSection: null,
+    lineStartX: null,
+    lineStartY: null,
+    lineEndX: null,
+    lineEndY: null,
+    lineLengthDisplay: null,
+    lineProfileCanvas: null,
+    clearLineBtn: null,
+    openLineDetailBtn: null,
+    lineDetailModal: null,
+    closeLineDetailBtn: null,
+    largeProfileCanvas: null,
+    modalLineStart: null,
+    modalLineEnd: null,
+    modalLineLength: null,
+    modalLineMax: null,
+    modalLineMin: null,
+    modalLineMean: null,
+    exportLineCsvBtn: null,
+    lineDataTableBody: null,
+    academicStyleToggle: null, // Style toggle checkbox / 學術風格切換器
+    downloadAcademicBtn: null  // Academic image export button / 學術影像匯出按鈕
 };
 
 // ============================================
@@ -440,6 +471,30 @@ function populateElements() {
     elements.lockCenter = document.getElementById('lockCenter');
     elements.crosshairOverlay = document.getElementById('crosshairOverlay');
     elements.imageContainerInner = document.getElementById('imageContainerInner');
+
+    // Line Profile Elements / 線段剖面元素
+    elements.lineSettingsSection = document.getElementById('lineSettingsSection');
+    elements.lineStartX = document.getElementById('lineStartX');
+    elements.lineStartY = document.getElementById('lineStartY');
+    elements.lineEndX = document.getElementById('lineEndX');
+    elements.lineEndY = document.getElementById('lineEndY');
+    elements.lineLengthDisplay = document.getElementById('lineLengthDisplay');
+    elements.lineProfileCanvas = document.getElementById('lineProfileCanvas');
+    elements.clearLineBtn = document.getElementById('clearLineBtn');
+    elements.openLineDetailBtn = document.getElementById('openLineDetailBtn');
+    elements.lineDetailModal = document.getElementById('lineDetailModal');
+    elements.closeLineDetailBtn = document.getElementById('closeLineDetailBtn');
+    elements.largeProfileCanvas = document.getElementById('largeProfileCanvas');
+    elements.modalLineStart = document.getElementById('modalLineStart');
+    elements.modalLineEnd = document.getElementById('modalLineEnd');
+    elements.modalLineLength = document.getElementById('modalLineLength');
+    elements.modalLineMax = document.getElementById('modalLineMax');
+    elements.modalLineMin = document.getElementById('modalLineMin');
+    elements.modalLineMean = document.getElementById('modalLineMean');
+    elements.exportLineCsvBtn = document.getElementById('exportLineCsvBtn');
+    elements.lineDataTableBody = document.getElementById('lineDataTableBody');
+    elements.academicStyleToggle = document.getElementById('academicStyleToggle');
+    elements.downloadAcademicBtn = document.getElementById('downloadAcademicBtn');
 }
 
 /**
@@ -501,11 +556,68 @@ function setupEventListeners() {
         localStorage.setItem('dicom-roi-theme', newTheme);
     });
 
-    // Tools - Default to ROI since Pan tool UI was removed
-    // 工具模式 - 因介面已移除平移工具，預設為 ROI 模式
+    // Tools - Default to ROI / 工具模式 - 預設為 ROI 模式
     state.toolMode = 'roi';
     if (elements.dicomCanvas) elements.dicomCanvas.style.cursor = 'crosshair';
     if (elements.roiSettingsSection) elements.roiSettingsSection.classList.remove('hidden');
+    if (elements.lineSettingsSection) elements.lineSettingsSection.classList.add('hidden');
+
+    if (elements.toolModeRadios) {
+        elements.toolModeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                state.toolMode = e.target.value;
+                if (state.toolMode === 'roi') {
+                    if (elements.roiSettingsSection) elements.roiSettingsSection.classList.remove('hidden');
+                    if (elements.lineSettingsSection) elements.lineSettingsSection.classList.add('hidden');
+                    if (elements.dicomCanvas) elements.dicomCanvas.style.cursor = 'crosshair';
+                } else if (state.toolMode === 'line') {
+                    if (elements.roiSettingsSection) elements.roiSettingsSection.classList.add('hidden');
+                    if (elements.lineSettingsSection) elements.lineSettingsSection.classList.remove('hidden');
+                    if (elements.dicomCanvas) elements.dicomCanvas.style.cursor = 'crosshair';
+                }
+                renderImage();
+            });
+        });
+    }
+
+    // Line Profile Buttons / 線段剖面按鈕
+    safeAddListener(elements.clearLineBtn, 'click', () => {
+        state.lineStart = null;
+        state.lineEnd = null;
+        state.lineProfileData = [];
+        updateLineUI();
+        renderImage();
+    });
+
+    safeAddListener(elements.openLineDetailBtn, 'click', () => {
+        if (elements.lineDetailModal) {
+            elements.lineDetailModal.classList.remove('hidden');
+            // Update toggle element status to match current state / 依當前狀態更新開關狀態
+            if (elements.academicStyleToggle) {
+                elements.academicStyleToggle.checked = state.academicStyle;
+            }
+            // Draw large profile chart / 繪製大型剖面圖
+            setTimeout(() => {
+                drawProfileChart(elements.largeProfileCanvas, true);
+                populateLineDataTable();
+            }, 50);
+        }
+    });
+
+    safeAddListener(elements.closeLineDetailBtn, 'click', () => {
+        if (elements.lineDetailModal) elements.lineDetailModal.classList.add('hidden');
+    });
+
+    safeAddListener(elements.exportLineCsvBtn, 'click', exportLineProfileToCSV);
+
+    safeAddListener(elements.academicStyleToggle, 'change', (e) => {
+        state.academicStyle = e.target.checked;
+        if (elements.largeProfileCanvas) {
+            drawProfileChart(elements.largeProfileCanvas, true);
+        }
+    });
+
+    safeAddListener(elements.downloadAcademicBtn, 'click', exportAcademicFigure);
 
     // Modal listeners
     if (elements.rawHeaderBtn) {
@@ -1020,6 +1132,12 @@ function loadImage(index) {
         updateSingleAnalyzeButton();
     }
 
+    if (state.lineStart && state.lineEnd) {
+        calculateLineProfile();
+    } else {
+        updateLineUI();
+    }
+
     renderImage();
     } catch (err) {
         console.error('Error in loadImage:', err);
@@ -1129,6 +1247,63 @@ function renderImage() {
         elements.ctx.font = 'bold 14px Inter, sans-serif';
         elements.ctx.fillText(`${index + 1}`, scaledX + scaledRadius + 5, scaledY - scaledRadius);
     });
+
+    // Draw Line Profile line and endpoints / 繪製線段剖面線段與端點
+    if (state.lineStart && state.lineEnd) {
+        const scaledStart = {
+            x: state.lineStart.x * zoomFactor,
+            y: state.lineStart.y * zoomFactor
+        };
+        const scaledEnd = {
+            x: state.lineEnd.x * zoomFactor,
+            y: state.lineEnd.y * zoomFactor
+        };
+
+        // Draw the main line / 繪製主線段
+        elements.ctx.strokeStyle = '#00ffff';
+        elements.ctx.lineWidth = 2.5;
+        elements.ctx.beginPath();
+        elements.ctx.moveTo(scaledStart.x, scaledStart.y);
+        elements.ctx.lineTo(scaledEnd.x, scaledEnd.y);
+        elements.ctx.stroke();
+
+        // Draw handles / 繪製端點控制點
+        const drawHandle = (point, label) => {
+            // Shadow effect / 陰影效果
+            elements.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            elements.ctx.shadowBlur = 4;
+            elements.ctx.shadowOffsetX = 0;
+            elements.ctx.shadowOffsetY = 2;
+
+            // Handle outer circle / 控制點外圈
+            elements.ctx.fillStyle = '#00ffff';
+            elements.ctx.beginPath();
+            elements.ctx.arc(point.x, point.y, 6, 0, 2 * Math.PI);
+            elements.ctx.fill();
+
+            // Inner white circle / 內部白色小圈
+            elements.ctx.fillStyle = '#ffffff';
+            elements.ctx.beginPath();
+            elements.ctx.arc(point.x, point.y, 3, 0, 2 * Math.PI);
+            elements.ctx.fill();
+
+            // Reset shadow / 重設陰影
+            elements.ctx.shadowBlur = 0;
+            elements.ctx.shadowOffsetX = 0;
+            elements.ctx.shadowOffsetY = 0;
+
+            // Draw label with contrast backing / 繪製具有對比度背景的標記
+            elements.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            elements.ctx.fillRect(point.x + 8, point.y - 18, 14, 14);
+
+            elements.ctx.fillStyle = '#00ffff';
+            elements.ctx.font = 'bold 11px Inter, sans-serif';
+            elements.ctx.fillText(label, point.x + 11, point.y - 7);
+        };
+
+        drawHandle(scaledStart, 'S');
+        drawHandle(scaledEnd, 'E');
+    }
 
     elements.ctx.restore();
 
@@ -1388,6 +1563,7 @@ function handleCanvasClick(e) {
     if (e.button !== 0) return; // Only left click
     if (state.isSpaceHeld) return; // Ignore clicks during pan mode
     if (state.wasPanning) { state.wasPanning = false; return; } // Ignore click after panning
+    if (state.toolMode !== 'roi') return; // KEY FIX: Only place ROI when toolMode is 'roi' / 關鍵修正：僅在 ROI 模式下才新增標記
 
     const coords = getCanvasCoordinates(e);
 
@@ -1408,6 +1584,7 @@ function handleMouseDown(e) {
         state.dragStartY = e.clientY;
         state.dragStartWW = state.windowWidth;
         state.dragStartWL = state.windowLevel;
+        return;
     }
     // Middle button or Space + left button - Pan
     if (e.button === 1 || (e.button === 0 && state.isSpaceHeld)) {
@@ -1419,6 +1596,17 @@ function handleMouseDown(e) {
         state.startPanX = state.panX;
         state.startPanY = state.panY;
         elements.dicomCanvas.style.cursor = 'grabbing';
+        return;
+    }
+    // Left button click - Line Profile / 左鍵點擊 - 線段剖面
+    if (e.button === 0 && !state.isSpaceHeld) {
+        if (state.toolMode === 'line') {
+            const coords = getCanvasCoordinates(e);
+            state.lineStart = coords;
+            state.lineEnd = coords;
+            state.isDrawingLine = true;
+            renderImage();
+        }
     }
 }
 
@@ -1427,6 +1615,13 @@ function handleMouseMove(e) {
         state.panX = state.startPanX + (e.clientX - state.panStartX);
         state.panY = state.startPanY + (e.clientY - state.panStartY);
         updatePanTransform();
+        return;
+    }
+    if (state.isDrawingLine) {
+        const coords = getCanvasCoordinates(e);
+        state.lineEnd = coords;
+        renderImage();
+        calculateLineProfile(); // Real-time profile calculation on drag / 拖曳時即時計算剖面
         return;
     }
     if (state.isRightDragging) {
@@ -1449,6 +1644,13 @@ function handleMouseUp(e) {
         state.wasPanning = true; // Prevent click from placing ROI after pan
         state.isPanning = false;
         elements.dicomCanvas.style.cursor = state.isSpaceHeld ? 'grab' : 'crosshair';
+    }
+    if (state.isDrawingLine) {
+        const coords = getCanvasCoordinates(e);
+        state.lineEnd = coords;
+        state.isDrawingLine = false;
+        renderImage();
+        calculateLineProfile();
     }
     state.isRightDragging = false;
 }
@@ -2504,7 +2706,691 @@ function filterRawHeaders(e) {
 }
 
 // ============================================
+// Line Profile Functions / 線段剖面功能函式
+// ============================================
+
+/**
+ * Calculate pixel values and distances along the drawn line / 計算繪製線段上的像素值與距離
+ */
+function calculateLineProfile() {
+    if (!state.pixelData || !state.lineStart || !state.lineEnd) {
+        state.lineProfileData = [];
+        updateLineUI();
+        return;
+    }
+
+    const x1 = state.lineStart.x;
+    const y1 = state.lineStart.y;
+    const x2 = state.lineEnd.x;
+    const y2 = state.lineEnd.y;
+    const cols = state.imageCols;
+    const rows = state.imageRows;
+
+    // Calculate pixel distance / 計算像素距離
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+
+    // Number of sample points: Round distance to nearest integer + 1 / 採樣點數量：取像素距離最接近的整數 + 1
+    const N = pixelDistance >= 1 ? Math.round(pixelDistance) + 1 : 1;
+    const profileData = [];
+
+    const rowSpacing = state.pixelSpacing ? state.pixelSpacing[0] : null;
+    const colSpacing = state.pixelSpacing ? state.pixelSpacing[1] : null;
+
+    for (let i = 0; i < N; i++) {
+        const t = N > 1 ? i / (N - 1) : 0;
+        
+        // Exact pixel coordinate using linear interpolation / 使用線性插值計算精確像素座標
+        const px = Math.min(cols - 1, Math.max(0, Math.round(x1 + t * dx)));
+        const py = Math.min(rows - 1, Math.max(0, Math.round(y1 + t * dy)));
+
+        // Read pixel value from DICOM pixel data / 從 DICOM 像素數據中讀取像素值
+        const value = state.pixelData[py * cols + px];
+
+        // Calculate segment distances / 計算分段距離
+        const segDx = px - x1;
+        const segDy = py - y1;
+        const distPx = Math.sqrt(segDx * segDx + segDy * segDy);
+        
+        let distMm = null;
+        if (rowSpacing !== null && colSpacing !== null) {
+            distMm = Math.sqrt(Math.pow(segDx * colSpacing, 2) + Math.pow(segDy * rowSpacing, 2));
+        }
+
+        profileData.push({
+            index: i,
+            x: px,
+            y: py,
+            distancePx: distPx,
+            distanceMm: distMm,
+            value: value
+        });
+    }
+
+    state.lineProfileData = profileData;
+
+    // Trigger UI and chart updates / 觸發 UI 與圖表更新
+    updateLineUI();
+    
+    // Draw preview chart in sidebar / 繪製側邊欄預覽圖表
+    if (elements.lineProfileCanvas) {
+        drawProfileChart(elements.lineProfileCanvas, false);
+    }
+}
+
+/**
+ * Update Line Profile sidebar UI components / 更新線段剖面側邊欄 UI 元件
+ */
+function updateLineUI() {
+    const hasLine = (state.lineStart && state.lineEnd);
+
+    if (hasLine) {
+        const x1 = Math.round(state.lineStart.x);
+        const y1 = Math.round(state.lineStart.y);
+        const x2 = Math.round(state.lineEnd.x);
+        const y2 = Math.round(state.lineEnd.y);
+
+        if (elements.lineStartX) elements.lineStartX.textContent = x1;
+        if (elements.lineStartY) elements.lineStartY.textContent = y1;
+        if (elements.lineEndX) elements.lineEndX.textContent = x2;
+        if (elements.lineEndY) elements.lineEndY.textContent = y2;
+
+        // Calculate total lengths / 計算總長度
+        const dx = state.lineEnd.x - state.lineStart.x;
+        const dy = state.lineEnd.y - state.lineStart.y;
+        const totalPx = Math.sqrt(dx * dx + dy * dy);
+
+        let totalMm = null;
+        if (state.pixelSpacing) {
+            const rowSpacing = state.pixelSpacing[0];
+            const colSpacing = state.pixelSpacing[1];
+            totalMm = Math.sqrt(Math.pow(dx * colSpacing, 2) + Math.pow(dy * rowSpacing, 2));
+        }
+
+        if (elements.lineLengthDisplay) {
+            if (totalMm !== null) {
+                elements.lineLengthDisplay.textContent = `${totalMm.toFixed(1)} mm (${totalPx.toFixed(1)} px)`;
+            } else {
+                elements.lineLengthDisplay.textContent = `${totalPx.toFixed(1)} px`;
+            }
+        }
+
+        // Enable buttons / 啟用按鈕
+        if (elements.clearLineBtn) elements.clearLineBtn.disabled = false;
+        if (elements.openLineDetailBtn) elements.openLineDetailBtn.disabled = false;
+    } else {
+        // Reset coordinate text / 重置座標文字
+        if (elements.lineStartX) elements.lineStartX.textContent = '-';
+        if (elements.lineStartY) elements.lineStartY.textContent = '-';
+        if (elements.lineEndX) elements.lineEndX.textContent = '-';
+        if (elements.lineEndY) elements.lineEndY.textContent = '-';
+        if (elements.lineLengthDisplay) elements.lineLengthDisplay.textContent = '-';
+
+        // Disable buttons / 停用按鈕
+        if (elements.clearLineBtn) elements.clearLineBtn.disabled = true;
+        if (elements.openLineDetailBtn) elements.openLineDetailBtn.disabled = true;
+
+        // Clear preview chart if empty / 若為空則清空預覽圖表
+        if (elements.lineProfileCanvas) {
+            const ctx = elements.lineProfileCanvas.getContext('2d');
+            ctx.clearRect(0, 0, elements.lineProfileCanvas.width, elements.lineProfileCanvas.height);
+            
+            // Draw placeholder text / 繪製提示文字
+            const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+            ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
+            ctx.font = '12px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(
+                document.documentElement.lang === 'zh-TW' || document.documentElement.lang === 'zh' 
+                    ? '請在影像上拖曳劃線以生成剖面圖' 
+                    : 'Drag on image to generate profile', 
+                elements.lineProfileCanvas.width / 2, 
+                elements.lineProfileCanvas.height / 2
+            );
+        }
+    }
+}
+
+/**
+ * Draw custom Line Profile chart on canvas / 在畫布上繪製自訂線段剖面圖表
+ * @param {HTMLCanvasElement} canvas Target canvas / 目標畫布
+ * @param {boolean} isLarge True if modal chart, false if sidebar preview / 是否為彈窗大圖表，否則為側欄小圖表
+ * @param {boolean} isAcademicExport True if exporting offline high-res figure / 是否正在匯出離線高解析度學術圖表
+ */
+function drawProfileChart(canvas, isLarge, isAcademicExport = false) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Determine whether to use academic style / 判定是否使用學術期刊風格
+    const useAcademic = isAcademicExport || (isLarge && state.academicStyle);
+
+    // Dynamically adjust canvas internal resolution to client display size to prevent blurriness (Bypass during offline high-res export)
+    // 動態調整畫布內部解析度至顯示大小以防止模糊（離線高解析度匯出時跳過此步驟）
+    if (!isAcademicExport) {
+        const displayWidth = canvas.clientWidth || canvas.width;
+        const displayHeight = canvas.clientHeight || canvas.height;
+        if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+            canvas.width = displayWidth;
+            canvas.height = displayHeight;
+        }
+    }
+
+    // Clear background (Academic style uses solid white; standard style uses clear rect / dark bg)
+    // 清空背景（學術風格使用純白填滿，標準風格則清除畫布/深色背景）
+    if (useAcademic) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (!state.lineProfileData || state.lineProfileData.length === 0) {
+        return;
+    }
+
+    const data = state.lineProfileData;
+    const values = data.map(d => d.value);
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+    const meanVal = values.reduce((a, b) => a + b, 0) / values.length;
+
+    // Define scale factor to maintain proportions across resolutions (900px base width)
+    // 定義縮放比例因子以在不同解析度下保持完美的視覺比例（以 900px 寬度為基準）
+    let scaleFactor = 1.0;
+    if (isAcademicExport) {
+        scaleFactor = canvas.width / 900.0;
+    } else if (isLarge) {
+        scaleFactor = 1.0;
+    } else {
+        scaleFactor = 0.55; // for the small sidebar chart / 側欄小圖表比例
+    }
+
+    // Set chart dimensions and padding (Academic style needs slightly more padding for clear label display)
+    // 設定圖表尺寸與內邊距（學術期刊格式需要稍大的邊距以確保標籤清晰顯示）
+    const padding = useAcademic
+        ? {
+            top: 45 * scaleFactor,
+            right: 40 * scaleFactor,
+            bottom: 60 * scaleFactor,
+            left: 80 * scaleFactor
+          }
+        : (isLarge 
+            ? { top: 35, right: 30, bottom: 45, left: 60 } 
+            : { top: 12, right: 10, bottom: 20, left: 40 });
+    
+    const chartW = canvas.width - padding.left - padding.right;
+    const chartH = canvas.height - padding.top - padding.bottom;
+
+    // Setup fonts and styles dynamically
+    // 動態設定字型與色彩樣式
+    const isDark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+    
+    // Academic style: Times New Roman, solid black axes, no glow
+    // 標準樣式：Inter/sans-serif，高科技霓虹發光
+    const fontName = useAcademic ? '"Times New Roman", Times, serif' : 'Inter, sans-serif';
+    const textPrimary = useAcademic ? '#000000' : (isDark ? '#f8fafc' : '#0f172a');
+    const textMuted = useAcademic ? '#000000' : (isDark ? '#94a3b8' : '#64748b');
+    const axisColor = useAcademic ? '#000000' : (isDark ? '#475569' : '#cbd5e1');
+    const gridColor = useAcademic ? 'rgba(0, 0, 0, 0.05)' : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)');
+
+    // Compute range with a 10% buffer
+    // 計算帶有 10% 緩衝的 Y 軸範圍
+    const valueRange = maxVal - minVal;
+    const yBuffer = valueRange === 0 ? 10 : valueRange * 0.1;
+    const yMin = minVal - yBuffer;
+    const yMax = maxVal + yBuffer;
+    const yRange = yMax - yMin;
+
+    // X axis unit: Use physical (mm) if spacing available, else pixels
+    // X 軸單位：若有間距則用物理(mm)，否則用像素(px)
+    const hasMm = data[0] && data[0].distanceMm !== null;
+    const getXVal = (d) => hasMm ? d.distanceMm : d.distancePx;
+    const xMax = getXVal(data[data.length - 1]);
+    const xUnit = hasMm ? 'mm' : 'px';
+
+    // Helper functions to map coordinates
+    // 輔助函數：映射物理數據至畫布座標
+    const getScreenX = (d) => padding.left + (getXVal(d) / xMax) * chartW;
+    const getScreenY = (val) => padding.top + chartH - ((val - yMin) / yRange) * chartH;
+
+    // 1. Draw Grid Lines or Academic Ticks / 1. 繪製網格線或學術刻度線
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = Math.max(1, 0.8 * scaleFactor);
+
+    // Horizontal grids & Y-axis labels / 水平網格線與 Y 軸標記
+    const gridCounts = isLarge ? 5 : 3;
+    for (let i = 0; i <= gridCounts; i++) {
+        const yVal = yMin + (i / gridCounts) * yRange;
+        const screenY = getScreenY(yVal);
+        
+        // Draw subtle grid lines (Skip completely in academic mode if you prefer ultra-clean, or keep a very subtle line)
+        // 繪製微弱網格線（學術期刊一般只留邊框與刻度，此處可繪製極淡的點線，或在學術模式下省略）
+        if (!useAcademic) {
+            ctx.beginPath();
+            ctx.moveTo(padding.left, screenY);
+            ctx.lineTo(padding.left + chartW, screenY);
+            ctx.stroke();
+        } else {
+            // Draw an extremely light solid grid line for academic precision, or skip
+            // 繪製一條極淡的實線以輔助讀數
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.04)';
+            ctx.beginPath();
+            ctx.moveTo(padding.left, screenY);
+            ctx.lineTo(padding.left + chartW, screenY);
+            ctx.stroke();
+        }
+
+        // Draw Y axis labels / 繪製 Y 軸數值標籤
+        ctx.fillStyle = textMuted;
+        ctx.font = `${Math.round(11 * scaleFactor)}px ${fontName}`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(Math.round(yVal), padding.left - (8 * scaleFactor), screenY);
+        
+        // Draw Y-axis Ticks pointing outward in Academic Style / 在學術風格下繪製向外突出的 Y 軸刻度線
+        if (useAcademic) {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1.2 * scaleFactor;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, screenY);
+            ctx.lineTo(padding.left - (5 * scaleFactor), screenY);
+            ctx.stroke();
+        }
+    }
+
+    // Vertical grids & X-axis labels / 垂直網格線與 X 軸標記
+    const xGridCounts = isLarge ? 6 : 3;
+    for (let i = 0; i <= xGridCounts; i++) {
+        const xVal = (i / xGridCounts) * xMax;
+        const screenX = padding.left + (i / xGridCounts) * chartW;
+
+        if (!useAcademic) {
+            ctx.strokeStyle = gridColor;
+            ctx.beginPath();
+            ctx.moveTo(screenX, padding.top);
+            ctx.lineTo(screenX, padding.top + chartH);
+            ctx.stroke();
+        } else {
+            // Light grid lines / 極淡垂直線
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.04)';
+            ctx.beginPath();
+            ctx.moveTo(screenX, padding.top);
+            ctx.lineTo(screenX, padding.top + chartH);
+            ctx.stroke();
+        }
+
+        // Draw X axis labels / 繪製 X 軸數值標籤
+        ctx.fillStyle = textMuted;
+        ctx.font = `${Math.round(11 * scaleFactor)}px ${fontName}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(
+            `${xVal.toFixed(hasMm && isLarge ? 1 : 0)}`, 
+            screenX, 
+            padding.top + chartH + (6 * scaleFactor)
+        );
+
+        // Draw X-axis Ticks pointing outward in Academic Style / 在學術風格下繪製向外突出的 X 軸刻度線
+        if (useAcademic) {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1.2 * scaleFactor;
+            ctx.beginPath();
+            ctx.moveTo(screenX, padding.top + chartH);
+            ctx.lineTo(screenX, padding.top + chartH + (5 * scaleFactor));
+            ctx.stroke();
+        }
+    }
+
+    // 2. Draw Area Gradient (Only in standard mode, skip in Academic mode to avoid gradients)
+    // 2. 繪製半透明漸變區域（標準模式下繪製，學術模式下省略以保持高對比）
+    if (!useAcademic && data.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(getScreenX(data[0]), getScreenY(data[0].value));
+        for (let i = 1; i < data.length; i++) {
+            ctx.lineTo(getScreenX(data[i]), getScreenY(data[i].value));
+        }
+        ctx.lineTo(getScreenX(data[data.length - 1]), padding.top + chartH);
+        ctx.lineTo(getScreenX(data[0]), padding.top + chartH);
+        ctx.closePath();
+
+        const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartH);
+        grad.addColorStop(0, 'rgba(0, 255, 255, 0.25)');
+        grad.addColorStop(1, 'rgba(0, 255, 255, 0.00)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+
+    // 3. Draw Profile Line / 3. 繪製主要剖面折線
+    if (data.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(getScreenX(data[0]), getScreenY(data[0].value));
+        for (let i = 1; i < data.length; i++) {
+            ctx.lineTo(getScreenX(data[i]), getScreenY(data[i].value));
+        }
+        
+        if (useAcademic) {
+            ctx.strokeStyle = '#000000'; // Pure black in academic style / 學術格式使用純黑色
+            ctx.lineWidth = 2.0 * scaleFactor; // Proportional line width / 按比例設定寬度
+        } else {
+            ctx.strokeStyle = '#00ffff'; // Neon cyan in standard style / 標準格式使用發光青色
+            ctx.lineWidth = isLarge ? 2.5 : 1.5;
+        }
+        
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    // Draw L-Frame Border for Academic Style (Nature/IEEE style: clear outer bounding box or L-frame)
+    // 為學術期刊圖表繪製堅實的邊框與座標軸實線 (L 型實線)
+    if (useAcademic) {
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1.5 * scaleFactor;
+        
+        // Draw L-frame / 繪製 L 型實線軸
+        ctx.beginPath();
+        // Y Axis Line
+        ctx.moveTo(padding.left, padding.top);
+        ctx.lineTo(padding.left, padding.top + chartH);
+        // X Axis Line
+        ctx.lineTo(padding.left + chartW, padding.top + chartH);
+        ctx.stroke();
+
+        // Optional: Draw top and right borders to make it a full frame (Standard for some journals)
+        // 可選：繪製頂部與右側細線以形成完整矩形邊框
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1.0 * scaleFactor;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, padding.top);
+        ctx.lineTo(padding.left + chartW, padding.top);
+        ctx.lineTo(padding.left + chartW, padding.top + chartH);
+        ctx.stroke();
+    }
+
+    // 4. Highlight Max / Min Peaks (Large chart or Academic mode only) / 4. 標記極值點（僅大圖表或學術模式顯示）
+    if ((isLarge || isAcademicExport) && data.length > 1) {
+        const maxPoint = data.find(d => d.value === maxVal);
+        const minPoint = data.find(d => d.value === minVal);
+
+        const drawMarker = (point, color, labelText) => {
+            const sx = getScreenX(point);
+            const sy = getScreenY(point.value);
+
+            if (useAcademic) {
+                // Academic style: Crisp, high-contrast markers without glowing shadow
+                // 學術格式：清晰高對比、不帶發光陰影的簡潔紅/藍實心小圓圈
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = labelText === 'MAX' ? '#dc2626' : '#2563eb'; // Deep red/blue / 深紅與深藍
+                ctx.beginPath();
+                ctx.arc(sx, sy, 4 * scaleFactor, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Draw neat text tag with no background box, using Times New Roman Font
+                // 以 Times New Roman 繪製純文字標籤，不使用背景色塊以求極致清爽
+                ctx.font = `italic ${Math.round(11 * scaleFactor)}px ${fontName}`;
+                ctx.fillStyle = labelText === 'MAX' ? '#dc2626' : '#2563eb';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                
+                const tagText = `${labelText}: ${point.value.toFixed(0)}`;
+                ctx.fillText(tagText, sx + (6 * scaleFactor), sy - (4 * scaleFactor));
+            } else {
+                // Standard mode: Glowing markers
+                // 標準模式：帶有霓虹發光背景與色塊的標記
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 8;
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 5, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Inner white dot
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(sx, sy, 2.5, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Draw text tag with contrast background
+                ctx.font = 'bold 10px Inter, sans-serif';
+                const tagText = `${labelText}: ${point.value.toFixed(0)}`;
+                const textW = ctx.measureText(tagText).width;
+                
+                const tagX = sx + 8;
+                const tagY = sy - 14;
+
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+                ctx.fillRect(tagX - 4, tagY - 10, textW + 8, 14);
+
+                ctx.fillStyle = color;
+                ctx.fillText(tagText, tagX, tagY);
+            }
+        };
+
+        if (maxPoint) drawMarker(maxPoint, '#f43f5e', 'MAX');
+        if (minPoint) drawMarker(minPoint, '#3b82f6', 'MIN');
+
+        // Draw Mean line / 繪製平均值水平線
+        const meanY = getScreenY(meanVal);
+        ctx.shadowBlur = 0;
+        
+        if (useAcademic) {
+            ctx.strokeStyle = '#4b5563'; // Dark gray for neutral academic look / 深灰色以符合學術中性色調
+            ctx.lineWidth = 1.2 * scaleFactor;
+            ctx.setLineDash([5 * scaleFactor, 5 * scaleFactor]); // Proportional dash / 按比例虛線
+            ctx.beginPath();
+            ctx.moveTo(padding.left, meanY);
+            ctx.lineTo(padding.left + chartW, meanY);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+
+            ctx.fillStyle = '#1f2937';
+            ctx.font = `italic ${Math.round(10 * scaleFactor)}px ${fontName}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`Mean: ${meanVal.toFixed(1)}`, padding.left + (5 * scaleFactor), meanY - (4 * scaleFactor));
+        } else {
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.6)'; // Emerald 500
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(padding.left, meanY);
+            ctx.lineTo(padding.left + chartW, meanY);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+
+            ctx.fillStyle = '#10b981';
+            ctx.font = 'bold 9px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`MEAN: ${meanVal.toFixed(1)}`, padding.left + 5, meanY - 4);
+        }
+    }
+
+    // 5. Draw Axis Titles / 5. 繪製座標軸標題
+    ctx.fillStyle = textPrimary;
+    ctx.font = `bold ${Math.round(13 * scaleFactor)}px ${fontName}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // X axis title / X 軸標題
+    if (isLarge || isAcademicExport) {
+        ctx.fillText(
+            document.documentElement.lang === 'zh-TW' || document.documentElement.lang === 'zh'
+                ? `沿線段距離 / Distance along line (${xUnit})`
+                : `Distance along line (${xUnit})`,
+            padding.left + chartW / 2,
+            canvas.height - (18 * scaleFactor)
+        );
+
+        // Y axis title (rotated) / Y 軸標題 (旋轉繪製)
+        ctx.save();
+        ctx.translate(22 * scaleFactor, padding.top + chartH / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(
+            document.documentElement.lang === 'zh-TW' || document.documentElement.lang === 'zh'
+                ? '像素讀值 / Pixel Value (HU / Raw)'
+                : 'Pixel Value (HU / Raw)',
+            0,
+            0
+        );
+        ctx.restore();
+    } else {
+        // Simple indicator for unit in small chart / 小圖表簡單顯示單位
+        ctx.fillStyle = textMuted;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.font = `${Math.round(9 * scaleFactor)}px ${fontName}`;
+        ctx.fillText(`(${xUnit})`, canvas.width - 2, canvas.height - 2);
+    }
+}
+
+/**
+ * Populate detailed coordinates and reading values into modal table / 填充詳細座標與讀值到彈窗表格中
+ */
+function populateLineDataTable() {
+    if (!elements.lineDataTableBody) return;
+
+    if (!state.lineProfileData || state.lineProfileData.length === 0) {
+        elements.lineDataTableBody.innerHTML = `<tr>
+            <td colspan="5" class="text-center" style="color: var(--text-muted); padding: 1.5rem;">
+                ${document.documentElement.lang === 'zh-TW' || document.documentElement.lang === 'zh' 
+                    ? '暫無數據 / No Data Available' 
+                    : 'No Data Available'}
+            </td>
+        </tr>`;
+        return;
+    }
+
+    const rowSpacing = state.pixelSpacing ? state.pixelSpacing[0] : null;
+    const colSpacing = state.pixelSpacing ? state.pixelSpacing[1] : null;
+
+    // Generate table rows HTML / 生成表格列 HTML
+    elements.lineDataTableBody.innerHTML = state.lineProfileData.map((d, idx) => {
+        const distanceStr = d.distanceMm !== null 
+            ? `${d.distanceMm.toFixed(2)} mm (${d.distancePx.toFixed(1)} px)`
+            : `${d.distancePx.toFixed(1)} px`;
+
+        return `<tr class="hover-highlight" data-index="${idx}">
+            <td style="font-family: monospace; font-size: 0.85rem; text-align: center;">${idx + 1}</td>
+            <td style="font-family: monospace; font-size: 0.85rem; text-align: center;">(${d.x}, ${d.y})</td>
+            <td style="font-size: 0.85rem; text-align: left;">${distanceStr}</td>
+            <td style="font-family: monospace; font-size: 0.85rem; text-align: right; font-weight: bold; color: var(--accent-cyan);">
+                ${d.value.toFixed(0)}
+            </td>
+        </tr>`;
+    }).join('');
+
+    // Update modal statistical summary card / 更新彈窗統計摘要卡片
+    const values = state.lineProfileData.map(d => d.value);
+    const maxVal = Math.max(...values);
+    const minVal = Math.min(...values);
+    const meanVal = values.reduce((a, b) => a + b, 0) / values.length;
+
+    // Calculate Standard Deviation / 計算標準差
+    const variance = values.reduce((a, b) => a + Math.pow(b - meanVal, 2), 0) / values.length;
+    const stdDev = Math.sqrt(variance);
+
+    if (elements.modalLineStart) elements.modalLineStart.textContent = `(${Math.round(state.lineStart.x)}, ${Math.round(state.lineStart.y)})`;
+    if (elements.modalLineEnd) elements.modalLineEnd.textContent = `(${Math.round(state.lineEnd.x)}, ${Math.round(state.lineEnd.y)})`;
+    if (elements.modalLineMax) elements.modalLineMax.textContent = maxVal.toFixed(0);
+    if (elements.modalLineMin) elements.modalLineMin.textContent = minVal.toFixed(0);
+    if (elements.modalLineMean) elements.modalLineMean.textContent = meanVal.toFixed(1);
+    if (elements.modalLineStd) elements.modalLineStd.textContent = stdDev.toFixed(1);
+}
+
+/**
+ * Export Line Profile data into CSV file / 匯出線段剖面數據為 CSV 檔案
+ */
+function exportLineProfileToCSV() {
+    if (!state.lineProfileData || state.lineProfileData.length === 0) {
+        showToast('⚠️ 沒有可供匯出的剖面線數據 / No Profile Data to export', 'error');
+        return;
+    }
+
+    // Prepare CSV header and lines bilingually / 雙語準備 CSV 檔頭與資料列
+    let csvContent = '\uFEFF'; // UTF-8 BOM for Excel Traditional Chinese support / Excel 繁體中文支援
+    csvContent += 'Index (索引),X (列座標),Y (行座標),Distance px (像素距離),Distance mm (物理距離),Pixel Value (像素讀值)\r\n';
+
+    state.lineProfileData.forEach(d => {
+        const mmVal = d.distanceMm !== null ? d.distanceMm.toFixed(4) : 'N/A';
+        csvContent += `${d.index + 1},${d.x},${d.y},${d.distancePx.toFixed(2)},${mmVal},${d.value}\r\n`;
+    });
+
+    // Create download link / 建立下載連結
+    try {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        
+        // Include instance or file name in CSV filename / 檔名中包含切片編號或檔名
+        const fileName = state.files[state.currentIndex]?.file?.name || 'dicom_image';
+        const cleanName = fileName.replace(/\.[^/.]+$/, "");
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${cleanName}_line_profile.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        showToast('✅ 成功匯出線段剖面 CSV 數據 / Successfully exported CSV profile', 'success');
+    } catch (err) {
+        console.error('CSV Export Error:', err);
+        showToast('❌ 匯出 CSV 失敗 / Failed to export CSV', 'error');
+    }
+}
+
+/**
+ * Export high-resolution (300 DPI equivalent) line profile chart in Academic Style
+ * 匯出學術期刊規格之高解析度 (等效 300 DPI) 剖面圖表影像
+ */
+function exportAcademicFigure() {
+    if (!state.lineProfileData || state.lineProfileData.length === 0) {
+        showToast('⚠️ 沒有可供匯出的剖面線數據 / No Profile Data to export', 'error');
+        return;
+    }
+
+    try {
+        // Create an offline high-resolution canvas (2400 x 1500 pixels for publication-grade prints)
+        // 建立離線高解析度畫布 (2400 x 1500 像素，符合學術期刊排版印刷規格)
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = 2400;
+        exportCanvas.height = 1500;
+
+        // Draw profile chart on the offline canvas in academic style
+        // 在離線畫布上以學術期刊風格繪製剖面圖表
+        drawProfileChart(exportCanvas, true, true);
+
+        // Convert the rendered canvas content to PNG data URL
+        // 將渲染後的畫布內容轉換為 PNG 數據連結
+        const dataUrl = exportCanvas.toDataURL('image/png');
+
+        // Create download link and trigger the download
+        // 建立下載連結並觸發下載
+        const link = document.createElement('a');
+        
+        // Get active file name to generate descriptive download filename
+        // 取得當前檔案名稱以生成具描述性的下載檔名
+        const fileName = state.files[state.currentIndex]?.file?.name || 'dicom_image';
+        const cleanName = fileName.replace(/\.[^/.]+$/, "");
+        
+        link.setAttribute('href', dataUrl);
+        link.setAttribute('download', `${cleanName}_academic_profile.png`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        showToast('✅ 成功下載高解析度學術圖表 / Successfully downloaded academic figure', 'success');
+    } catch (err) {
+        console.error('Academic Export Error:', err);
+        showToast('❌ 匯出學術圖表失敗 / Failed to export academic figure', 'error');
+    }
+}
+
+// ============================================
 // Entry Point
 // ============================================
 document.addEventListener('DOMContentLoaded', init);
-

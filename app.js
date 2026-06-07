@@ -386,7 +386,8 @@ const elements = {
     academicStyleToggle: null, // Style toggle checkbox / 學術風格切換器
     downloadAcademicBtn: null, // Academic image export button / 學術影像匯出按鈕
     activeLineSelect: null,    // Multi-line dropdown select / 多線段下拉選單
-    duplicateLineBtn: null,    // Duplicate line button / 複製線段按鈕
+    duplicateLineBtn: null,    // Parallel offset copy button / 平行偏移複製按鈕
+    cloneLineBtn: null,        // Exact clone button / 原地複製按鈕
     deleteLineBtn: null,       // Delete line button / 刪除線段按鈕
     duplicateDirectionSelect: null, // Duplicate direction selector / 複製方向選擇
     duplicateDistanceInput: null, // Duplicate distance input / 複製距離輸入
@@ -523,6 +524,7 @@ function populateElements() {
     elements.downloadAcademicBtn = document.getElementById('downloadAcademicBtn');
     elements.activeLineSelect = document.getElementById('activeLineSelect');
     elements.duplicateLineBtn = document.getElementById('duplicateLineBtn');
+    elements.cloneLineBtn = document.getElementById('cloneLineBtn');
     elements.deleteLineBtn = document.getElementById('deleteLineBtn');
     elements.duplicateDirectionSelect = document.getElementById('duplicateDirectionSelect');
     elements.duplicateDistanceInput = document.getElementById('duplicateDistanceInput');
@@ -726,6 +728,26 @@ function setupEventListeners() {
             ? `📋 已複製平行線段 ${state.lines.length}`
             : `📋 Parallel line duplicated as Line ${state.lines.length}`;
         showToast(toastMsg, 'success');
+    });
+
+    safeAddListener(elements.cloneLineBtn, 'click', () => {
+        if (state.activeLineIndex === -1 || !state.lineStart || !state.lineEnd) return;
+
+        const newLine = {
+            start: { x: state.lineStart.x, y: state.lineStart.y },
+            end: { x: state.lineEnd.x, y: state.lineEnd.y },
+            id: Date.now()
+        };
+
+        state.lines.push(newLine);
+        state.activeLineIndex = state.lines.length - 1;
+        state.lineStart = newLine.start;
+        state.lineEnd = newLine.end;
+
+        calculateLineProfile();
+        renderImage();
+
+        showToast(`📄 已複製線段 ${state.lines.length}`, 'success');
     });
 
     safeAddListener(elements.deleteLineBtn, 'click', () => {
@@ -3114,6 +3136,7 @@ function updateLineUI() {
 
     const canOperateLine = state.activeLineIndex >= 0 && state.activeLineIndex < state.lines.length;
     if (elements.duplicateLineBtn) elements.duplicateLineBtn.disabled = !canOperateLine;
+    if (elements.cloneLineBtn) elements.cloneLineBtn.disabled = !canOperateLine;
     if (elements.deleteLineBtn) elements.deleteLineBtn.disabled = !canOperateLine;
     if (elements.duplicateDirectionSelect) elements.duplicateDirectionSelect.value = state.lineDuplicateDirection;
     if (elements.duplicateDistanceInput) {

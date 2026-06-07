@@ -188,9 +188,10 @@
                                     <input id="showAllLinesToggle" type="checkbox" checked style="width: 14px; height: 14px; cursor: pointer;">
                                     顯示全部線段 / Show all lines
                                 </label>
-                                <div class="roi-buttons">
-                                    <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 8px;" disabled title="複製當前選取的線段">📋 複製 / Copy</button>
-                                    <button id="deleteLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 8px;" disabled title="刪除當前選取的線段">❌ 刪除 / Del</button>
+                                <div class="roi-buttons" style="display: flex; gap: 6px;">
+                                    <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 4px;" disabled title="平行偏移複製當前選取的線段">↔ 偏移複製</button>
+                                    <button id="cloneLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 4px;" disabled title="原地複製當前選取的線段">📄 複製 / Clone</button>
+                                    <button id="deleteLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 4px;" disabled title="刪除當前選取的線段">❌ 刪除 / Del</button>
                                 </div>
                             </div>
                             <div class="control-group">

@@ -44,7 +44,17 @@
                     <h2>拖曳 DICOM 資料夾到此處</h2>
                     <p>支援批次分析多張醫學影像</p>
                     <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
-                    <button id="selectFolderBtn" class="btn btn-primary">選擇資料夾</button>
+                    <input type="file" id="filesInput" multiple hidden>
+                    <div class="upload-buttons" style="display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 15px; flex-wrap: wrap;">
+                        <button id="selectFolderBtn" class="btn btn-primary"><i class="fa-solid fa-folder-open"></i> 選擇資料夾</button>
+                        <button id="selectFilesBtn" class="btn btn-secondary"><i class="fa-solid fa-file-medical"></i> 選擇複數檔案</button>
+                    </div>
+                    <div class="append-mode-panel" style="display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 15px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); width: fit-content; margin-left: auto; margin-right: auto;">
+                        <input type="checkbox" id="appendModeToggle" style="width: 16px; height: 16px; cursor: pointer;">
+                        <label for="appendModeToggle" style="cursor: pointer; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); user-select: none;">
+                            累加載入模式 (Append Mode)
+                        </label>
+                    </div>
                     <div class="medical-badge">HIPAA Compliant - 本機處理，資料不上傳</div>
                 </div>
             </div>
@@ -82,6 +92,20 @@
 
                 <!-- Right: Controls Panel -->
                 <div class="controls-section">
+                    <!-- File Loader -->
+                    <div class="control-card">
+                        <h3>📂 檔案載入 (File Load)</h3>
+                        <div class="append-mode-container" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                            <input type="checkbox" id="sidebarAppendModeToggle" style="cursor: pointer; width: 16px; height: 16px;">
+                            <label for="sidebarAppendModeToggle" style="cursor: pointer; font-size: 0.85rem; font-weight: 500; color: var(--text-primary); user-select: none;">
+                                累加載入模式 (Append Mode)
+                            </label>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="sidebarSelectFolderBtn" class="btn btn-secondary btn-sm btn-block" style="flex: 1; margin: 0; padding: 8px;"><i class="fa-solid fa-folder-open"></i> 資料夾</button>
+                            <button id="sidebarSelectFilesBtn" class="btn btn-secondary btn-sm btn-block" style="flex: 1; margin: 0; padding: 8px;"><i class="fa-solid fa-file-medical"></i> 複數檔案</button>
+                        </div>
+                    </div>
                     <!-- ROI Settings -->
                     <div class="control-card">
                         <h3>🔧 互動工具 (Tools)</h3>
@@ -139,6 +163,36 @@
                                     -- px
                                 </div>
                             </div>
+                            <!-- Multi-Line Manager / 多線段管理區塊 -->
+                            <div class="control-group" id="multiLineContainer" style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+                                <label style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">📏 多線段管理 / Multi-Line Manager</label>
+                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                    <select id="activeLineSelect" style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem; outline: none; cursor: pointer;">
+                                        <option value="">-- 無線段 / No Line --</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                    <select id="duplicateDirectionSelect" style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.85rem; outline: none; cursor: pointer;">
+                                        <option value="left">↖ 左側法向 / Left Normal</option>
+                                        <option value="right">↘ 右側法向 / Right Normal</option>
+                                    </select>
+                                </div>
+                                <div class="control-group" style="margin-bottom: 8px;">
+                                    <label for="duplicateDistanceInput" style="font-size: 0.82rem;">複製距離 / Copy Distance</label>
+                                    <div class="input-with-unit">
+                                        <input type="number" id="duplicateDistanceInput" value="30" min="1" step="1">
+                                        <span>px</span>
+                                    </div>
+                                </div>
+                                <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer; user-select: none;">
+                                    <input id="showAllLinesToggle" type="checkbox" checked style="width: 14px; height: 14px; cursor: pointer;">
+                                    顯示全部線段 / Show all lines
+                                </label>
+                                <div class="roi-buttons">
+                                    <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 8px;" disabled title="複製當前選取的線段">📋 複製 / Copy</button>
+                                    <button id="deleteLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 8px;" disabled title="刪除當前選取的線段">❌ 刪除 / Del</button>
+                                </div>
+                            </div>
                             <div class="control-group">
                                 <label>即時剖面圖 / Real-time Profile</label>
                                 <canvas id="lineProfileCanvas" width="280" height="150" style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; display: block; width: 100%; height: 120px;"></canvas>
@@ -146,6 +200,9 @@
                             <div class="roi-buttons">
                                 <button id="clearLineBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除線段</button>
                                 <button id="openLineDetailBtn" class="btn btn-primary btn-sm" style="flex: 1.2;" disabled>🔍 完整數據</button>
+                            </div>
+                            <div class="roi-buttons mt-1">
+                                <button id="batchExportLineBtn" class="btn btn-secondary btn-sm btn-block" disabled>📂 批次匯出線段剖面</button>
                             </div>
                             <p class="hint">💡 左鍵拖曳以繪製量測線段</p>
                         </div>
@@ -210,7 +267,7 @@
                             <input type="number" id="windowLevel" value="40">
                         </div>
                         <!-- CT Presets -->
-                        <div class="preset-buttons"
+                        <div id="ctPresetsContainer" class="preset-buttons"
                             style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px;">
                             <button id="presetLungBtn" class="btn btn-secondary btn-sm" title="Lung (W:1500 L:-600)">🫁
                                 肺部</button>

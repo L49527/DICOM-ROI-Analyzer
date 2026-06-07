@@ -93,9 +93,6 @@ const state = {
     lineDragMode: null,     // Drag state: null, 'start', 'end', 'translate'
     lineDragStartCoords: null, // Initial mouse coordinates on mouse down for calculating pan offset
     lineProfileData: [],    // Sampled readings along the line
-    lineDuplicateDirection: 'left', // 'left' uses +normal, 'right' uses -normal
-    lineDuplicateDistance: 30, // Parallel copy offset distance in image pixels / 平行複製偏移距離（影像像素）
-    showAllLines: true,     // Render all stored lines or only active line
     academicStyle: true,    // Default to Academic Style for publication / 預設為學術期刊格式
     appendMode: false       // Load files cumulatively / 累加載入模式
 };
@@ -387,10 +384,7 @@ const elements = {
     downloadAcademicBtn: null, // Academic image export button / 學術影像匯出按鈕
     activeLineSelect: null,    // Multi-line dropdown select / 多線段下拉選單
     duplicateLineBtn: null,    // Duplicate line button / 複製線段按鈕
-    deleteLineBtn: null,       // Delete line button / 刪除線段按鈕
-    duplicateDirectionSelect: null, // Duplicate direction selector / 複製方向選擇
-    duplicateDistanceInput: null, // Duplicate distance input / 複製距離輸入
-    showAllLinesToggle: null   // Show all lines toggle / 顯示全部線段開關
+    deleteLineBtn: null        // Delete line button / 刪除線段按鈕
 };
 
 // ============================================
@@ -524,9 +518,6 @@ function populateElements() {
     elements.activeLineSelect = document.getElementById('activeLineSelect');
     elements.duplicateLineBtn = document.getElementById('duplicateLineBtn');
     elements.deleteLineBtn = document.getElementById('deleteLineBtn');
-    elements.duplicateDirectionSelect = document.getElementById('duplicateDirectionSelect');
-    elements.duplicateDistanceInput = document.getElementById('duplicateDistanceInput');
-    elements.showAllLinesToggle = document.getElementById('showAllLinesToggle');
 }
 
 /**
@@ -647,70 +638,26 @@ function setupEventListeners() {
         renderImage();
     });
 
-    safeAddListener(elements.duplicateDirectionSelect, 'change', (e) => {
-        if (e.target.value === 'left' || e.target.value === 'right') {
-            state.lineDuplicateDirection = e.target.value;
-        }
-    });
-
-    safeAddListener(elements.duplicateDistanceInput, 'input', (e) => {
-        const distance = parseFloat(e.target.value);
-        if (Number.isFinite(distance) && distance > 0) {
-            state.lineDuplicateDistance = distance;
-        }
-    });
-
-    safeAddListener(elements.showAllLinesToggle, 'change', (e) => {
-        state.showAllLines = !!e.target.checked;
-        renderImage();
-    });
-
     safeAddListener(elements.duplicateLineBtn, 'click', () => {
         if (state.activeLineIndex === -1 || !state.lineStart || !state.lineEnd) return;
 
-        // True parallel offset along the line normal / 沿線段法向量做真正平行偏移
-        const inputDistance = elements.duplicateDistanceInput
-            ? parseFloat(elements.duplicateDistanceInput.value)
-            : state.lineDuplicateDistance;
-        if (!Number.isFinite(inputDistance) || inputDistance <= 0) {
-            showToast('⚠️ 請輸入大於 0 的複製距離 / Enter a copy distance greater than 0', 'warning');
-            return;
-        }
-        const offsetPx = inputDistance;
-        state.lineDuplicateDistance = offsetPx;
-        const dx = state.lineEnd.x - state.lineStart.x;
-        const dy = state.lineEnd.y - state.lineStart.y;
-        const length = Math.hypot(dx, dy);
-        if (length < 1) return;
+        // Parallel shift offset (水平與垂直平移 30px)
+        const offset = 30;
+        const newStart = { x: state.lineStart.x + offset, y: state.lineStart.y + offset };
+        const newEnd = { x: state.lineEnd.x + offset, y: state.lineEnd.y + offset };
 
-        // Unit normal vector n = (-dy, dx) / |v|
-        const nx = -dy / length;
-        const ny = dx / length;
-
+        // Bind within image boundaries / 限制在新影像範圍內
         const cols = state.imageCols || 512;
         const rows = state.imageRows || 512;
+        const shiftX = (newStart.x >= cols || newEnd.x >= cols) ? -offset * 2 : offset;
+        const shiftY = (newStart.y >= rows || newEnd.y >= rows) ? -offset * 2 : offset;
 
-        function clampPoint(pt) {
-            return {
-                x: Math.round(Math.max(0, Math.min(cols - 1, pt.x))),
-                y: Math.round(Math.max(0, Math.min(rows - 1, pt.y)))
-            };
-        }
-
-        const plusStart = { x: state.lineStart.x + nx * offsetPx, y: state.lineStart.y + ny * offsetPx };
-        const plusEnd = { x: state.lineEnd.x + nx * offsetPx, y: state.lineEnd.y + ny * offsetPx };
-        const minusStart = { x: state.lineStart.x - nx * offsetPx, y: state.lineStart.y - ny * offsetPx };
-        const minusEnd = { x: state.lineEnd.x - nx * offsetPx, y: state.lineEnd.y - ny * offsetPx };
-
-        const plusValid = plusStart.x >= 0 && plusStart.x < cols && plusStart.y >= 0 && plusStart.y < rows && plusEnd.x >= 0 && plusEnd.x < cols && plusEnd.y >= 0 && plusEnd.y < rows;
-        const minusValid = minusStart.x >= 0 && minusStart.x < cols && minusStart.y >= 0 && minusStart.y < rows && minusEnd.x >= 0 && minusEnd.x < cols && minusEnd.y >= 0 && minusEnd.y < rows;
-        let usePlus = state.lineDuplicateDirection !== 'right';
-        if (usePlus && !plusValid && minusValid) usePlus = false;
-        if (!usePlus && !minusValid && plusValid) usePlus = true;
+        const startCoords = { x: Math.round(Math.max(0, Math.min(cols - 1, state.lineStart.x + shiftX))), y: Math.round(Math.max(0, Math.min(rows - 1, state.lineStart.y + shiftY))) };
+        const endCoords = { x: Math.round(Math.max(0, Math.min(cols - 1, state.lineEnd.x + shiftX))), y: Math.round(Math.max(0, Math.min(rows - 1, state.lineEnd.y + shiftY))) };
 
         const newLine = {
-            start: clampPoint(usePlus ? plusStart : minusStart),
-            end: clampPoint(usePlus ? plusEnd : minusEnd),
+            start: startCoords,
+            end: endCoords,
             id: Date.now()
         };
 
@@ -723,8 +670,8 @@ function setupEventListeners() {
         renderImage();
 
         const toastMsg = document.documentElement.lang === 'zh-TW' || document.documentElement.lang === 'zh'
-            ? `📋 已複製平行線段 ${state.lines.length}`
-            : `📋 Parallel line duplicated as Line ${state.lines.length}`;
+            ? `📋 已複製線段為平行 線段 ${state.lines.length}`
+            : `📋 Standardized line duplicated as Line ${state.lines.length}`;
         showToast(toastMsg, 'success');
     });
 
@@ -773,7 +720,7 @@ function setupEventListeners() {
     });
 
     safeAddListener(elements.exportLineCsvBtn, 'click', exportLineProfileToCSV);
-    safeAddListener(elements.batchExportLineBtn, 'click', openBatchLineTagModal);
+    safeAddListener(elements.batchExportLineBtn, 'click', exportBatchLineProfileToCSV);
 
     safeAddListener(elements.academicStyleToggle, 'change', (e) => {
         state.academicStyle = e.target.checked;
@@ -900,8 +847,6 @@ function setupEventListeners() {
     safeAddListener(elements.confirmExportBtn, 'click', () => {
         if (state.exportMode === 'single') {
             exportSingleCSV();
-        } else if (state.exportMode === 'line-batch') {
-            exportBatchLineProfileToCSV(Array.from(state.selectedTags));
         } else {
             exportCSV();
         }
@@ -1064,11 +1009,8 @@ async function handleDrop(e) {
 
     // Initialize queue with top-level entries
     // 使用頂層項目初始化佇列
-    let hasFileItems = false; // Track if any file-kind items exist / 記錄是否有檔案類型項目
-
     for (const item of items) {
         if (item.kind === 'file') {
-            hasFileItems = true;
             const entry = item.webkitGetAsEntry();
             if (entry) queue.push(entry);
         }
@@ -1137,21 +1079,12 @@ async function handleDrop(e) {
     // Fallback: If no files were gathered via webkitGetAsEntry (typical for local file:// protocol sandboxes),
     // but e.dataTransfer.files is populated, read those directly to bypass sandboxing.
     // 退回機制：如果透過 webkitGetAsEntry 未收集到任何檔案（本地 file:// 協議沙箱下常見），但 e.dataTransfer.files 存在檔案，則直接使用。
-    if (files.length === 0) {
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            for (const file of e.dataTransfer.files) {
-                const isHidden = file.name.startsWith('.') || file.name.startsWith('._') || file.name === 'Icon\r';
-                if (!isHidden) {
-                    files.push(file);
-                }
+    if (files.length === 0 && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        for (const file of e.dataTransfer.files) {
+            const isHidden = file.name.startsWith('.') || file.name.startsWith('._') || file.name === 'Icon\r';
+            if (!isHidden) {
+                files.push(file);
             }
-        } else if (hasFileItems && queue.length === 0) {
-            // Detected file:// sandbox: webkitGetAsEntry returned null for all items, and dataTransfer.files
-            // has no entries (user dragged folders, not individual files). Provide specific guidance.
-            // 偵測到 file:// 沙箱限制：webkitGetAsEntry 全數回傳 null 且 dataTransfer.files 無檔案（使用者拖曳的是資料夾），顯示明確引導。
-            showToast('⚠️ 在 file:// 模式下無法拖曳資料夾，請改用「選擇複數檔案」按鈕，或透過 HTTP server 開啟（如 python3 -m http.server 8000）', 'warning');
-            hideLoading();
-            return;
         }
     }
 
@@ -1520,42 +1453,51 @@ function renderImage() {
         elements.ctx.fillText(`${index + 1}`, scaledX + scaledRadius + 5, scaledY - scaledRadius);
     });
 
-    // Draw Line Profile lines and endpoints / 繪製線段剖面線段與端點
-    const drawLineWithHandles = (line, isActive) => {
-        const scaledStart = { x: line.start.x * zoomFactor, y: line.start.y * zoomFactor };
-        const scaledEnd = { x: line.end.x * zoomFactor, y: line.end.y * zoomFactor };
-        const strokeColor = isActive ? '#00ffff' : 'rgba(0, 255, 255, 0.45)';
-        const lineWidth = isActive ? 2.5 : 1.5;
+    // Draw Line Profile line and endpoints / 繪製線段剖面線段與端點
+    if (state.lineStart && state.lineEnd) {
+        const scaledStart = {
+            x: state.lineStart.x * zoomFactor,
+            y: state.lineStart.y * zoomFactor
+        };
+        const scaledEnd = {
+            x: state.lineEnd.x * zoomFactor,
+            y: state.lineEnd.y * zoomFactor
+        };
 
-        elements.ctx.strokeStyle = strokeColor;
-        elements.ctx.lineWidth = lineWidth;
+        // Draw the main line / 繪製主線段
+        elements.ctx.strokeStyle = '#00ffff';
+        elements.ctx.lineWidth = 2.5;
         elements.ctx.beginPath();
         elements.ctx.moveTo(scaledStart.x, scaledStart.y);
         elements.ctx.lineTo(scaledEnd.x, scaledEnd.y);
         elements.ctx.stroke();
 
-        if (!isActive) return;
-
+        // Draw handles / 繪製端點控制點
         const drawHandle = (point, label) => {
+            // Shadow effect / 陰影效果
             elements.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
             elements.ctx.shadowBlur = 4;
             elements.ctx.shadowOffsetX = 0;
             elements.ctx.shadowOffsetY = 2;
 
+            // Handle outer circle / 控制點外圈
             elements.ctx.fillStyle = '#00ffff';
             elements.ctx.beginPath();
             elements.ctx.arc(point.x, point.y, 6, 0, 2 * Math.PI);
             elements.ctx.fill();
 
+            // Inner white circle / 內部白色小圈
             elements.ctx.fillStyle = '#ffffff';
             elements.ctx.beginPath();
             elements.ctx.arc(point.x, point.y, 3, 0, 2 * Math.PI);
             elements.ctx.fill();
 
+            // Reset shadow / 重設陰影
             elements.ctx.shadowBlur = 0;
             elements.ctx.shadowOffsetX = 0;
             elements.ctx.shadowOffsetY = 0;
 
+            // Draw label with contrast backing / 繪製具有對比度背景的標記
             elements.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             elements.ctx.fillRect(point.x + 8, point.y - 18, 14, 14);
 
@@ -1566,16 +1508,6 @@ function renderImage() {
 
         drawHandle(scaledStart, 'S');
         drawHandle(scaledEnd, 'E');
-    };
-
-    if (state.lines.length > 0) {
-        if (state.showAllLines) {
-            state.lines.forEach((line, index) => drawLineWithHandles(line, index === state.activeLineIndex));
-        } else if (state.activeLineIndex >= 0 && state.lines[state.activeLineIndex]) {
-            drawLineWithHandles(state.lines[state.activeLineIndex], true);
-        }
-    } else if (state.lineStart && state.lineEnd) {
-        drawLineWithHandles({ start: state.lineStart, end: state.lineEnd }, true);
     }
 
     elements.ctx.restore();
@@ -1922,27 +1854,6 @@ function handleMouseUp(e) {
         const coords = getCanvasCoordinates(e);
         state.lineEnd = coords;
         state.isDrawingLine = false;
-
-        // Persist the completed line into multi-line state so Copy/Delete can work.
-        const cols = state.imageCols || 512;
-        const rows = state.imageRows || 512;
-        const finalizedLine = {
-            start: {
-                x: Math.round(Math.max(0, Math.min(cols - 1, state.lineStart.x))),
-                y: Math.round(Math.max(0, Math.min(rows - 1, state.lineStart.y)))
-            },
-            end: {
-                x: Math.round(Math.max(0, Math.min(cols - 1, state.lineEnd.x))),
-                y: Math.round(Math.max(0, Math.min(rows - 1, state.lineEnd.y)))
-            },
-            id: Date.now()
-        };
-
-        state.lines.push(finalizedLine);
-        state.activeLineIndex = state.lines.length - 1;
-        state.lineStart = finalizedLine.start;
-        state.lineEnd = finalizedLine.end;
-
         renderImage();
         calculateLineProfile();
     }
@@ -2576,18 +2487,11 @@ function openTagModal(mode = 'batch') {
     tagList.innerHTML = '';
 
     // Default selected tags
-    if (mode === 'line-batch') {
-        state.selectedTags = new Set([
-            'PatientName', 'PatientID', 'StudyDate', 'Modality',
-            'ExposureIndex', 'KVP', 'SliceLocation', 'SeriesDescription'
-        ]);
-    } else {
-        state.selectedTags = new Set([
-            'PatientName', 'PatientID', 'FileName', 'ROI_ID',
-            'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
-            'ExposureIndex', 'KVP', 'SliceLocation', 'SeriesDescription'
-        ]);
-    }
+    state.selectedTags = new Set([
+        'PatientName', 'PatientID', 'FileName', 'ROI_ID',
+        'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
+        'ExposureIndex', 'KVP', 'SliceLocation', 'SeriesDescription'
+    ]);
 
     const sortedTags = Array.from(state.availableTags).sort((a, b) => {
         // Sort by translation if available, otherwise by tag name
@@ -2623,21 +2527,6 @@ function openTagModal(mode = 'batch') {
     }
 
     showModal('tagModal');
-}
-
-function openBatchLineTagModal() {
-    if (state.files.length === 0) {
-        showToast('⚠️ 尚未載入影像 / No images loaded', 'warning');
-        return;
-    }
-    if (state.lines.length === 0 && (!state.lineStart || !state.lineEnd)) {
-        showToast('⚠️ 尚未建立線段 / No measured lines', 'warning');
-        return;
-    }
-
-    // Reuse the same tag modal, but limit to DICOM tags for batch line export.
-    state.availableTags = new Set(COMMON_TAGS.map(t => t.name));
-    openTagModal('line-batch');
 }
 
 function toggleAllTags(select) {
@@ -3094,33 +2983,6 @@ function calculateLineProfile() {
  */
 function updateLineUI() {
     const hasLine = (state.lineStart && state.lineEnd);
-
-    // Keep multi-line dropdown and button states in sync.
-    if (elements.activeLineSelect) {
-        elements.activeLineSelect.innerHTML = '<option value="">-- 無線段 / No Line --</option>';
-        state.lines.forEach((line, index) => {
-            const option = document.createElement('option');
-            option.value = String(index);
-            option.textContent = `Line ${index + 1}`;
-            elements.activeLineSelect.appendChild(option);
-        });
-
-        if (state.activeLineIndex >= 0 && state.activeLineIndex < state.lines.length) {
-            elements.activeLineSelect.value = String(state.activeLineIndex);
-        } else {
-            elements.activeLineSelect.value = '';
-        }
-    }
-
-    const canOperateLine = state.activeLineIndex >= 0 && state.activeLineIndex < state.lines.length;
-    if (elements.duplicateLineBtn) elements.duplicateLineBtn.disabled = !canOperateLine;
-    if (elements.deleteLineBtn) elements.deleteLineBtn.disabled = !canOperateLine;
-    if (elements.duplicateDirectionSelect) elements.duplicateDirectionSelect.value = state.lineDuplicateDirection;
-    if (elements.duplicateDistanceInput) {
-        elements.duplicateDistanceInput.value = state.lineDuplicateDistance;
-        elements.duplicateDistanceInput.disabled = !canOperateLine;
-    }
-    if (elements.showAllLinesToggle) elements.showAllLinesToggle.checked = state.showAllLines;
 
     if (hasLine) {
         const x1 = Math.round(state.lineStart.x);
@@ -3692,13 +3554,9 @@ function exportLineProfileToCSV() {
  * Export Batch Line Profile data into a single CSV file (Wide-Format)
  * 批次匯出整個資料夾切片的線段剖面數據為單一 CSV 檔案（寬格式）
  */
-function exportBatchLineProfileToCSV(selectedDicomTags = null) {
-    const linesToExport = state.lines.length > 0
-        ? state.lines
-        : ((state.lineStart && state.lineEnd) ? [{ start: state.lineStart, end: state.lineEnd, id: Date.now() }] : []);
-
-    if (linesToExport.length === 0 || state.files.length === 0) {
-        showToast('⚠️ 沒有量測線段或未載入任何影像 / No measured lines or loaded images', 'error');
+function exportBatchLineProfileToCSV() {
+    if (!state.lineStart || !state.lineEnd || state.files.length === 0) {
+        showToast('⚠️ 沒有量測線段或未載入任何影像 / No active line or loaded images', 'error');
         return;
     }
 
@@ -3711,6 +3569,17 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
     // Use setTimeout to yield execution and keep UI responsive / 使用 setTimeout 讓出執行緒保持 UI 響應
     setTimeout(async () => {
         try {
+            const x1 = state.lineStart.x;
+            const y1 = state.lineStart.y;
+            const x2 = state.lineEnd.x;
+            const y2 = state.lineEnd.y;
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const pixelDistance = Math.sqrt(dx * dx + dy * dy);
+
+            // Number of sample points / 採樣點數量
+            const N = pixelDistance >= 1 ? Math.round(pixelDistance) + 1 : 1;
+
             // Sort slices by location, instance number or filename / 複製並對切片以位置、編號或檔名進行排序
             const sortedFiles = [...state.files].sort((a, b) => {
                 const locA = parseFloat(a.dataSet.string('x00201041'));
@@ -3726,74 +3595,58 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
                 return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
             });
 
-            const allRowsData = [];
-            const rowSpacing = state.pixelSpacing ? state.pixelSpacing[0] : null;
-            const colSpacing = state.pixelSpacing ? state.pixelSpacing[1] : null;
+            // Initialize rowsData / 初始化列數據
+            const rowsData = [];
+            for (let i = 0; i < N; i++) {
+                const t = N > 1 ? i / (N - 1) : 0;
+                const px = Math.min(state.imageCols - 1, Math.max(0, Math.round(x1 + t * dx)));
+                const py = Math.min(state.imageRows - 1, Math.max(0, Math.round(y1 + t * dy)));
+                const segDx = px - x1;
+                const segDy = py - y1;
+                const distPx = Math.sqrt(segDx * segDx + segDy * segDy);
 
-            // Build rows for each line and attach line number / 對每條線建立資料列並附上線段編號
-            for (let lineIdx = 0; lineIdx < linesToExport.length; lineIdx++) {
-                const line = linesToExport[lineIdx];
-                const x1 = line.start.x;
-                const y1 = line.start.y;
-                const x2 = line.end.x;
-                const y2 = line.end.y;
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const pixelDistance = Math.sqrt(dx * dx + dy * dy);
-                const N = pixelDistance >= 1 ? Math.round(pixelDistance) + 1 : 1;
+                let distMm = null;
+                const rowSpacing = state.pixelSpacing ? state.pixelSpacing[0] : null;
+                const colSpacing = state.pixelSpacing ? state.pixelSpacing[1] : null;
+                if (rowSpacing !== null && colSpacing !== null) {
+                    distMm = Math.sqrt(Math.pow(segDx * colSpacing, 2) + Math.pow(segDy * rowSpacing, 2));
+                }
 
-                const rowsData = [];
+                rowsData.push({
+                    index: i + 1,
+                    x: px,
+                    y: py,
+                    distPx: distPx.toFixed(2),
+                    distMm: distMm !== null ? distMm.toFixed(4) : 'N/A',
+                    values: []
+                });
+            }
+
+            // Extract values for each file / 對於每個切片提取對應的取樣點讀值
+            for (let fIdx = 0; fIdx < sortedFiles.length; fIdx++) {
+                const f = sortedFiles[fIdx];
+                let pixelData = null;
+                let cols = 0, rows = 0;
+
+                try {
+                    pixelData = getPixelDataFromDataSet(f.dataSet, f.byteArray);
+                    rows = f.dataSet.uint16('x00280010');
+                    cols = f.dataSet.uint16('x00280011');
+                } catch (err) {
+                    console.error(`Error parsing pixel data for ${f.file.name}:`, err);
+                }
+
                 for (let i = 0; i < N; i++) {
-                    const t = N > 1 ? i / (N - 1) : 0;
-                    const px = Math.min(state.imageCols - 1, Math.max(0, Math.round(x1 + t * dx)));
-                    const py = Math.min(state.imageRows - 1, Math.max(0, Math.round(y1 + t * dy)));
-                    const segDx = px - x1;
-                    const segDy = py - y1;
-                    const distPx = Math.sqrt(segDx * segDx + segDy * segDy);
-
-                    let distMm = null;
-                    if (rowSpacing !== null && colSpacing !== null) {
-                        distMm = Math.sqrt(Math.pow(segDx * colSpacing, 2) + Math.pow(segDy * rowSpacing, 2));
-                    }
-
-                    rowsData.push({
-                        lineNo: lineIdx + 1,
-                        index: i + 1,
-                        x: px,
-                        y: py,
-                        distPx: distPx.toFixed(2),
-                        distMm: distMm !== null ? distMm.toFixed(4) : 'N/A',
-                        values: []
-                    });
-                }
-
-                for (let fIdx = 0; fIdx < sortedFiles.length; fIdx++) {
-                    const f = sortedFiles[fIdx];
-                    let pixelData = null;
-                    let cols = 0, rows = 0;
-
-                    try {
-                        pixelData = getPixelDataFromDataSet(f.dataSet, f.byteArray);
-                        rows = f.dataSet.uint16('x00280010');
-                        cols = f.dataSet.uint16('x00280011');
-                    } catch (err) {
-                        console.error(`Error parsing pixel data for ${f.file.name}:`, err);
-                    }
-
-                    for (let i = 0; i < N; i++) {
-                        if (pixelData && cols > 0 && rows > 0) {
-                            const t = N > 1 ? i / (N - 1) : 0;
-                            const px = Math.min(cols - 1, Math.max(0, Math.round(x1 + t * dx)));
-                            const py = Math.min(rows - 1, Math.max(0, Math.round(y1 + t * dy)));
-                            const val = pixelData[py * cols + px];
-                            rowsData[i].values.push(val.toFixed(4));
-                        } else {
-                            rowsData[i].values.push('N/A');
-                        }
+                    if (pixelData && cols > 0 && rows > 0) {
+                        const t = N > 1 ? i / (N - 1) : 0;
+                        const px = Math.min(cols - 1, Math.max(0, Math.round(x1 + t * dx)));
+                        const py = Math.min(rows - 1, Math.max(0, Math.round(y1 + t * dy)));
+                        const val = pixelData[py * cols + px];
+                        rowsData[i].values.push(val.toFixed(4));
+                    } else {
+                        rowsData[i].values.push('N/A');
                     }
                 }
-
-                allRowsData.push(...rowsData);
             }
 
             // Compile to CSV with Excel compatible UTF-8 BOM / 編譯為包含 Excel 相容 UTF-8 BOM 的 CSV
@@ -3801,7 +3654,6 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
 
             // Compile headers / 編譯表頭
             const headers = [
-                'Line (線段編號)',
                 'Index (索引)',
                 'X (列座標)',
                 'Y (行座標)',
@@ -3828,39 +3680,9 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
             });
             csvContent += headers.join(',') + '\r\n';
 
-            // Optional metadata rows for user-selected DICOM tags / 依使用者勾選附加 DICOM tag 資訊列
-            if (Array.isArray(selectedDicomTags) && selectedDicomTags.length > 0) {
-                selectedDicomTags.forEach(tagName => {
-                    const tagValues = sortedFiles.map(f => {
-                        let value = '';
-                        const found = COMMON_TAGS.find(t => t.name === tagName);
-                        if (found) {
-                            const raw = f.dataSet.string(found.tag);
-                            value = raw !== undefined && raw !== null ? String(raw) : '';
-                        }
-                        if (value.includes(',') || value.includes('"')) {
-                            return `"${value.replace(/\"/g, '""')}"`;
-                        }
-                        return value;
-                    });
-
-                    const metaRow = [
-                        `DICOM Tag: ${tagName}`,
-                        '',
-                        '',
-                        '',
-                        '',
-                        '',
-                        ...tagValues
-                    ];
-                    csvContent += metaRow.join(',') + '\r\n';
-                });
-            }
-
             // Compile rows / 編譯數據列
-            allRowsData.forEach(r => {
+            rowsData.forEach(r => {
                 const rowCells = [
-                    `Line ${r.lineNo}`,
                     r.index,
                     r.x,
                     r.y,
@@ -3887,7 +3709,6 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
-            hideModal('tagModal');
 
             showToast('✅ 成功匯出批次線段剖面 CSV / Successfully exported batch CSV profile', 'success');
         } catch (err) {

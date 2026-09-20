@@ -142,6 +142,7 @@ body {
 .main-content {
     flex: 1;
     display: flex;
+    min-height: 0;
     overflow: hidden;
 }
 
@@ -302,6 +303,7 @@ body {
 .viewer-panel {
     display: flex;
     flex: 1;
+    min-height: 0;
     gap: var(--spacing-lg);
     padding: var(--spacing-lg);
     overflow: hidden;
@@ -309,8 +311,7 @@ body {
 
 /* Cards keep natural height instead of stretching to the tallest card.
    卡片取自然高度，不被最高的 ROI 卡撐出空白（image-section 不受影響仍可撐滿）。 */
-.viewer-panel > .control-card,
-.viewer-panel > .controls-section {
+.viewer-panel > .control-card {
     align-self: flex-start;
 }
 
@@ -608,6 +609,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
+    min-height: 0;
     overflow-y: auto;
     flex-shrink: 0;
 }

@@ -1267,6 +1267,31 @@ async function loadDICOMFiles(files) {
     } finally {
         hideLoading();
     }
+
+    // Sort loaded slices into anatomical order before display:
+    // SeriesInstanceUID -> SliceLocation -> InstanceNumber -> numeric filename.
+    // 載入後先按 Series 分組、再按物理位置/編號排序，避免 I10/I100 檔名排序造成播放跳片。
+    // Without this, browser file order (I10, I100, I110... I20) scrambles playback.
+    if (state.files.length > 1) {
+        state.files.sort((a, b) => {
+            const seriesA = a.dataSet.string('x0020000e') || '';
+            const seriesB = b.dataSet.string('x0020000e') || '';
+            if (seriesA !== seriesB) {
+                return seriesA.localeCompare(seriesB);
+            }
+            const locA = parseFloat(a.dataSet.string('x00201041'));
+            const locB = parseFloat(b.dataSet.string('x00201041'));
+            if (!isNaN(locA) && !isNaN(locB) && locA !== locB) {
+                return locA - locB;
+            }
+            const instA = parseInt(a.dataSet.string('x00200013'), 10);
+            const instB = parseInt(b.dataSet.string('x00200013'), 10);
+            if (!isNaN(instA) && !isNaN(instB) && instA !== instB) {
+                return instA - instB;
+            }
+            return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
+        });
+    }
     
     const loadedCount = state.files.length - initialCount;
     const validCount = state.files.length;
@@ -3734,16 +3759,24 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
     // Use setTimeout to yield execution and keep UI responsive / 使用 setTimeout 讓出執行緒保持 UI 響應
     setTimeout(async () => {
         try {
-            // Sort slices by location, instance number or filename / 複製並對切片以位置、編號或檔名進行排序
+            // Sort slices grouped by series into anatomical order (same order as viewer playback):
+            // SeriesInstanceUID -> SliceLocation -> InstanceNumber -> numeric filename.
+            // 批次匯出與 viewer 播放用同一排序：先按 Series 分組、組內按物理位置/編號，
+            // 避免多系列載入時不同協議的同位置切片交錯混排。
             const sortedFiles = [...state.files].sort((a, b) => {
+                const seriesA = a.dataSet.string('x0020000e') || '';
+                const seriesB = b.dataSet.string('x0020000e') || '';
+                if (seriesA !== seriesB) {
+                    return seriesA.localeCompare(seriesB);
+                }
                 const locA = parseFloat(a.dataSet.string('x00201041'));
                 const locB = parseFloat(b.dataSet.string('x00201041'));
-                if (!isNaN(locA) && !isNaN(locB)) {
+                if (!isNaN(locA) && !isNaN(locB) && locA !== locB) {
                     return locA - locB;
                 }
                 const instA = parseInt(a.dataSet.string('x00200013'), 10);
                 const instB = parseInt(b.dataSet.string('x00200013'), 10);
-                if (!isNaN(instA) && !isNaN(instB)) {
+                if (!isNaN(instA) && !isNaN(instB) && instA !== instB) {
                     return instA - instB;
                 }
                 return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
@@ -3834,14 +3867,28 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
 
             sortedFiles.forEach(f => {
                 const sliceLoc = f.dataSet.string('x00201041');
+                const seriesNum = f.dataSet.string('x00200011');
+                const seriesDesc = f.dataSet.string('x0008103e');
                 let colHeader = f.file.name;
+                // Include series identity so same filenames across series stay distinguishable
+                // 欄位標註系列編號與描述，多系列批次時才分得出 132 個 I10 各屬哪個協議
+                const tagParts = [];
+                if (seriesNum !== undefined && seriesNum !== '') {
+                    tagParts.push(`S${seriesNum}`);
+                }
+                if (seriesDesc !== undefined && seriesDesc !== '') {
+                    tagParts.push(seriesDesc);
+                }
                 if (sliceLoc !== undefined && sliceLoc !== '') {
-                    colHeader += ` (Loc: ${parseFloat(sliceLoc).toFixed(2)})`;
+                    tagParts.push(`Loc: ${parseFloat(sliceLoc).toFixed(2)}`);
                 } else {
                     const instNum = f.dataSet.string('x00200013');
                     if (instNum !== undefined && instNum !== '') {
-                        colHeader += ` (Inst: ${instNum})`;
+                        tagParts.push(`Inst: ${instNum}`);
                     }
+                }
+                if (tagParts.length > 0) {
+                    colHeader += ` (${tagParts.join(' | ')})`;
                 }
 
                 if (colHeader.includes(',') || colHeader.includes('"')) {

@@ -423,6 +423,7 @@ function populateElements() {
     elements.imageCounter = document.getElementById('imageCounter');
     elements.fullscreenBtn = document.getElementById('fullscreenBtn');
     elements.roiRadius = document.getElementById('roiRadius');
+    elements.roiArea = document.getElementById('roiArea');
     elements.roiPhysicalInfo = document.getElementById('roiPhysicalInfo');
     elements.roiCount = document.getElementById('roiCount');
     elements.roiListContainer = document.getElementById('roiListContainer');
@@ -870,6 +871,24 @@ function setupEventListeners() {
     // ROI controls
     safeAddListener(elements.roiRadius, 'change', () => {
         state.roiRadius = parseInt(elements.roiRadius.value) || 25;
+        updateRoiPhysicalInfo();
+        renderImage();
+    });
+
+    // Area input: target mm² -> pixel radius (rounded to integer, clamped to input range).
+    // 面積反推半徑：r = √(A / (π·sx·sy))，四捨五入取整並箝制在 5~200。
+    safeAddListener(elements.roiArea, 'change', () => {
+        const targetArea = parseFloat(elements.roiArea.value);
+        const sp = state.pixelSpacing;
+        if (!(targetArea > 0)) return;
+        if (!sp || !(sp[0] > 0) || !(sp[1] > 0) || isNaN(sp[0]) || isNaN(sp[1])) {
+            showToast('⚠️ 目前影像無 Pixel Spacing，無法由面積換算半徑', 'warning');
+            return;
+        }
+        let r = Math.round(Math.sqrt(targetArea / (Math.PI * sp[0] * sp[1])));
+        r = Math.min(200, Math.max(5, r));
+        state.roiRadius = r;
+        if (elements.roiRadius) elements.roiRadius.value = r;
         updateRoiPhysicalInfo();
         renderImage();
     });
@@ -2520,17 +2539,29 @@ function roiPhysicalFields(dataSet, radiusPx, pixelCount) {
 
 // Live conversion hint under the radius input (theoretical full circle;
 // clipped edges make actual sampled pixels fewer — see ROI_Pixels in results).
+// 同步回填面積輸入框；無 spacing 時停用面積輸入。
 function updateRoiPhysicalInfo() {
     if (!elements.roiPhysicalInfo) return;
     const r = state.roiRadius || 25;
     const sp = state.pixelSpacing;
+    const areaInput = elements.roiArea;
     if (sp && sp[0] > 0 && sp[1] > 0 && !isNaN(sp[0]) && !isNaN(sp[1])) {
         const rMm = r * (sp[0] + sp[1]) / 2;
         const areaMm2 = Math.PI * r * r * sp[0] * sp[1];
         elements.roiPhysicalInfo.textContent =
             `≈ 半徑 ${rMm.toFixed(2)} mm，面積 ${areaMm2.toFixed(2)} mm²（理論圓；實際以結果表 ROI_Pixels 計）`;
+        if (areaInput) {
+            areaInput.disabled = false;
+            areaInput.value = areaMm2.toFixed(1);
+            areaInput.title = '';
+        }
     } else {
         elements.roiPhysicalInfo.textContent = '目前影像無 Pixel Spacing，僅能以像素計';
+        if (areaInput) {
+            areaInput.disabled = true;
+            areaInput.value = '';
+            areaInput.title = '目前影像無 Pixel Spacing';
+        }
     }
 }
 

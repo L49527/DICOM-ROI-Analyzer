@@ -129,6 +129,15 @@
                             <div id="roiPhysicalInfo" class="hint" style="margin-top: 4px;"></div>
                         </div>
                         <div class="control-group">
+                            <label>ROI 面積設定 / ROI Area (mm²)</label>
+                            <div class="input-with-unit">
+                                <input type="number" id="roiArea" value="" min="1" step="1">
+                                <span>mm²</span>
+                            </div>
+                            <div class="hint" style="margin-top: 4px;">輸入目標面積自動換算半徑（需影像含 Pixel Spacing）</div>
+                        </div>
+                        </div>
+                        <div class="control-group">
                             <label>已放置 ROI / Placed ROIs</label>
                             <div class="roi-count-display">
                                 <span id="roiCount">0</span> 個

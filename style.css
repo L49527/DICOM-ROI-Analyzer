@@ -307,6 +307,13 @@ body {
     overflow: hidden;
 }
 
+/* Cards keep natural height instead of stretching to the tallest card.
+   卡片取自然高度，不被最高的 ROI 卡撐出空白（image-section 不受影響仍可撐滿）。 */
+.viewer-panel > .control-card,
+.viewer-panel > .controls-section {
+    align-self: flex-start;
+}
+
 .hidden {
     display: none !important;
 }

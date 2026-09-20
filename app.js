@@ -141,6 +141,9 @@ const TAG_TRANSLATIONS = {
     'ROI_X': 'ROI 圓心 X',
     'ROI_Y': 'ROI 圓心 Y',
     'ROI_R': 'ROI 半徑',
+    'ROI_Pixels': 'ROI 像素數',
+    'ROI_R_mm': 'ROI 半徑 (mm)',
+    'ROI_Area_mm2': 'ROI 面積 (mm²)',
 
     // 病患資訊
     'PatientName': '病患姓名',
@@ -420,6 +423,7 @@ function populateElements() {
     elements.imageCounter = document.getElementById('imageCounter');
     elements.fullscreenBtn = document.getElementById('fullscreenBtn');
     elements.roiRadius = document.getElementById('roiRadius');
+    elements.roiPhysicalInfo = document.getElementById('roiPhysicalInfo');
     elements.roiCount = document.getElementById('roiCount');
     elements.roiListContainer = document.getElementById('roiListContainer');
     elements.deleteLastRoiBtn = document.getElementById('deleteLastRoiBtn');
@@ -866,6 +870,7 @@ function setupEventListeners() {
     // ROI controls
     safeAddListener(elements.roiRadius, 'change', () => {
         state.roiRadius = parseInt(elements.roiRadius.value) || 25;
+        updateRoiPhysicalInfo();
         renderImage();
     });
 
@@ -1416,6 +1421,7 @@ function loadImage(index) {
             }
         } catch (e) {}
     }
+    updateRoiPhysicalInfo();
 
     // Set UI for modality
     const modality = state.currentDS.string('x00080060') || 'OT';
@@ -2276,7 +2282,7 @@ async function runSingleImageAnalysis() {
     }
 
     state.lastAnalysisMode = 'single';
-    state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
+    state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R', 'ROI_Pixels', 'ROI_R_mm', 'ROI_Area_mm2']);
 
     // Fallback: if Worker unavailable, run on main thread
     if (!state.worker) {
@@ -2385,7 +2391,7 @@ async function runAnalysis() {
     elements.progressText.textContent = '0%';
 
     state.results = [];
-    state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R']);
+    state.availableTags = new Set(['FileName', 'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD', 'ROI_X', 'ROI_Y', 'ROI_R', 'ROI_Pixels', 'ROI_R_mm', 'ROI_Area_mm2']);
     state.lastAnalysisMode = 'batch';
 
     // Fallback: if Worker unavailable, run on main thread
@@ -2476,14 +2482,56 @@ function calculateROIStats(pixelData, cols, rows, center, radius) {
     }
 
     if (values.length === 0) {
-        return { mean: 0, sd: 0 };
+        return { mean: 0, sd: 0, count: 0 };
     }
 
     const mean = values.reduce((a, b) => a + b, 0) / values.length;
     const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
     const sd = Math.sqrt(variance);
 
-    return { mean, sd };
+    return { mean, sd, count: values.length };
+}
+
+// Physical ROI fields from DICOM Pixel Spacing (x00280030).
+// 面積用實際取樣像素數 × 單像素面積（邊界裁切的圓會比 πr² 小，故不用理論值）。
+function getPixelSpacingMm(dataSet) {
+    try {
+        const raw = dataSet.string('x00280030');
+        if (!raw) return null;
+        const p = String(raw).split('\\').map(parseFloat);
+        if (p.length >= 2 && !isNaN(p[0]) && !isNaN(p[1]) && p[0] > 0 && p[1] > 0) {
+            return { row: p[0], col: p[1] };
+        }
+    } catch (e) {}
+    return null;
+}
+
+function roiPhysicalFields(dataSet, radiusPx, pixelCount) {
+    const sp = getPixelSpacingMm(dataSet);
+    if (!sp) {
+        return { ROI_Pixels: pixelCount, ROI_R_mm: 'N/A', ROI_Area_mm2: 'N/A' };
+    }
+    return {
+        ROI_Pixels: pixelCount,
+        ROI_R_mm: (radiusPx * (sp.row + sp.col) / 2).toFixed(4),
+        ROI_Area_mm2: (pixelCount * sp.row * sp.col).toFixed(4)
+    };
+}
+
+// Live conversion hint under the radius input (theoretical full circle;
+// clipped edges make actual sampled pixels fewer — see ROI_Pixels in results).
+function updateRoiPhysicalInfo() {
+    if (!elements.roiPhysicalInfo) return;
+    const r = state.roiRadius || 25;
+    const sp = state.pixelSpacing;
+    if (sp && sp[0] > 0 && sp[1] > 0 && !isNaN(sp[0]) && !isNaN(sp[1])) {
+        const rMm = r * (sp[0] + sp[1]) / 2;
+        const areaMm2 = Math.PI * r * r * sp[0] * sp[1];
+        elements.roiPhysicalInfo.textContent =
+            `≈ 半徑 ${rMm.toFixed(2)} mm，面積 ${areaMm2.toFixed(2)} mm²（理論圓；實際以結果表 ROI_Pixels 計）`;
+    } else {
+        elements.roiPhysicalInfo.textContent = '目前影像無 Pixel Spacing，僅能以像素計';
+    }
 }
 
 // 主執行緒降級 — 批次分析 (Compatibility Mode fallback)
@@ -2541,6 +2589,7 @@ async function runAnalysisMainThread(filterValue) {
                     ROI_X: center.x,
                     ROI_Y: center.y,
                     ROI_R: state.roiRadius,
+                    ...roiPhysicalFields(f.dataSet, state.roiRadius, roiStats.count),
                     ...dicomTags
                 });
             }
@@ -2605,6 +2654,7 @@ async function runSingleMainThread(selectedIndex) {
             ROI_X: center.x,
             ROI_Y: center.y,
             ROI_R: state.roiRadius,
+            ...roiPhysicalFields(f.dataSet, state.roiRadius, roiStats.count),
             ...dicomTags
         });
     }

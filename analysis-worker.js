@@ -112,6 +112,7 @@ self.onmessage = function(e) {
                         ROI_X: center.x,
                         ROI_Y: center.y,
                         ROI_R: roiRadius,
+                        ...roiPhysicalFields(dataSet, roiRadius, roiStats.count),
                         ...dicomTags
                     });
                 }
@@ -200,6 +201,7 @@ self.onmessage = function(e) {
                     ROI_X: center.x,
                     ROI_Y: center.y,
                     ROI_R: roiRadius,
+                    ...roiPhysicalFields(dataSet, roiRadius, roiStats.count),
                     ...dicomTags
                 });
             }
@@ -290,11 +292,39 @@ function calculateROIStatsOptimized(pixels, cols, rows, center, radius, slope, i
         }
     }
 
-    if (count === 0) return { mean: 0, sd: 0 };
+    if (count === 0) return { mean: 0, sd: 0, count: 0 };
 
     const mean = sum / count;
     const sd = Math.sqrt(Math.max(0, (sumSq / count) - (mean * mean)));
-    return { mean, sd };
+    return { mean, sd, count };
+}
+
+/**
+ * Physical ROI fields from DICOM Pixel Spacing (x00280030).
+ * Area uses actual sampled pixel count (edge-clipped circles are smaller than PI*r^2).
+ */
+function getPixelSpacingMm(dataSet) {
+    try {
+        const raw = dataSet.string('x00280030');
+        if (!raw) return null;
+        const p = String(raw).split('\\').map(parseFloat);
+        if (p.length >= 2 && !isNaN(p[0]) && !isNaN(p[1]) && p[0] > 0 && p[1] > 0) {
+            return { row: p[0], col: p[1] };
+        }
+    } catch (e) {}
+    return null;
+}
+
+function roiPhysicalFields(dataSet, radiusPx, pixelCount) {
+    const sp = getPixelSpacingMm(dataSet);
+    if (!sp) {
+        return { ROI_Pixels: pixelCount, ROI_R_mm: 'N/A', ROI_Area_mm2: 'N/A' };
+    }
+    return {
+        ROI_Pixels: pixelCount,
+        ROI_R_mm: (radiusPx * (sp.row + sp.col) / 2).toFixed(4),
+        ROI_Area_mm2: (pixelCount * sp.row * sp.col).toFixed(4)
+    };
 }
 
 function sendProgress(completed, total) {

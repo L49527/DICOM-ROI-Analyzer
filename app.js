@@ -2549,7 +2549,7 @@ function updateRoiPhysicalInfo() {
         const rMm = r * (sp[0] + sp[1]) / 2;
         const areaMm2 = Math.PI * r * r * sp[0] * sp[1];
         elements.roiPhysicalInfo.textContent =
-            `≈ 半徑 ${rMm.toFixed(2)} mm，面積 ${areaMm2.toFixed(2)} mm²（理論圓；實際以結果表 ROI_Pixels 計）`;
+            `≈ ${rMm.toFixed(2)} mm / ${areaMm2.toFixed(1)} mm²`;
         if (areaInput) {
             areaInput.disabled = false;
             areaInput.value = areaMm2.toFixed(1);

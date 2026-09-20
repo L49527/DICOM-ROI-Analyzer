@@ -1096,6 +1096,8 @@ body {
         width: 100%;
         flex-direction: row;
         flex-wrap: wrap;
+        align-items: flex-start;
+        align-content: flex-start;
     }
 
     .control-card {

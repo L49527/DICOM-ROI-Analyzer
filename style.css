@@ -309,6 +309,18 @@ body {
     overflow: hidden;
 }
 
+/* Keep folder import discoverable after the initial drop zone is hidden. */
+.viewer-panel.drag-over {
+    outline: 2px dashed var(--accent-primary);
+    outline-offset: -8px;
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+}
+
+#seriesManagerModal.drag-over .series-manager-modal-content {
+    outline: 2px dashed var(--accent-primary);
+    outline-offset: -6px;
+}
+
 /* Cards keep natural height instead of stretching to the tallest card.
    卡片取自然高度，不被最高的 ROI 卡撐出空白（image-section 不受影響仍可撐滿）。 */
 .viewer-panel > .control-card {
@@ -698,6 +710,36 @@ body {
     border-left: 2px solid var(--accent-primary);
 }
 
+#crossSeriesRoiStatus[data-tone="success"] {
+    color: var(--accent-success);
+    border-left-color: var(--accent-success);
+}
+
+#crossSeriesRoiStatus[data-tone="warning"] {
+    color: var(--accent-warning);
+    border-left-color: var(--accent-warning);
+}
+
+.cross-series-summary {
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    border-left: 2px solid var(--accent-primary);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.cross-series-summary[data-tone="success"] {
+    color: var(--accent-success);
+    border-left-color: var(--accent-success);
+}
+
+.cross-series-summary[data-tone="warning"] {
+    color: var(--accent-warning);
+    border-left-color: var(--accent-warning);
+}
+
 /* Zoom Control */
 .zoom-control {
     display: flex;
@@ -866,6 +908,147 @@ body {
     max-width: 720px;
 }
 
+/* ============================================
+   Series Manager
+   ============================================ */
+.active-series-summary {
+    display: grid;
+    gap: 6px;
+    margin-bottom: var(--spacing-md);
+    font-size: 0.82rem;
+}
+
+.active-series-title {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.active-series-meta {
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.series-manager-modal-content {
+    max-width: 960px;
+}
+
+.series-manager-subtitle {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+}
+
+.series-manager-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.series-import-summary {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+#seriesFilterInput {
+    width: min(360px, 100%);
+    padding: 9px 12px;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.series-list {
+    display: grid;
+    gap: var(--spacing-sm);
+}
+
+.series-list-empty {
+    padding: var(--spacing-xl);
+    color: var(--text-secondary);
+    text-align: center;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.series-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.series-item.is-active {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.series-item-title {
+    margin-bottom: 6px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.series-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.series-item-warnings {
+    margin-top: 8px;
+    color: var(--accent-warning);
+    font-size: 0.78rem;
+}
+
+.series-item-actions {
+    display: flex;
+    align-items: center;
+}
+
+.series-status-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: var(--accent-success);
+    background: color-mix(in srgb, var(--accent-success) 12%, transparent);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.series-status-badge.has-warning {
+    color: var(--accent-warning);
+    background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+}
+
+@media (max-width: 700px) {
+    .series-manager-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    #seriesFilterInput {
+        width: 100%;
+    }
+
+    .series-item {
+        grid-template-columns: 1fr;
+    }
+
+    .series-item-actions .btn {
+        width: 100%;
+    }
+}
+
 @keyframes modalIn {
     from {
         opacity: 0;
@@ -978,8 +1161,39 @@ body {
 }
 
 /* Tag List */
+.tag-preset-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.tag-preset-label {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-right: 2px;
+}
+
+.tag-preset-actions .btn.active {
+    color: #fff;
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.tag-preset-hint {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    margin-left: auto;
+}
+
 .tag-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-md);
 }

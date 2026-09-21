@@ -19,15 +19,20 @@
 // Global State
 // ============================================
 const state = {
-    files: [],              // All loaded DICOM files
+    files: [],              // Files in the currently active Series
+    allFiles: [],           // All imported DICOM files across Series
+    seriesMap: new Map(),
+    activeSeriesKey: null,
     currentIndex: 0,        // Current image index
     pixelData: null,        // Current image pixel data
     currentDS: null,        // Current DICOM dataset
 
     // ROI - Multi-ROI Support
     roiCenters: [],         // Array of {x, y} objects
+    roiPatientAnchors: [], // Patient-coordinate anchors for cross-Series transfer
     roiRadius: 25,
     roiTargetAreaMm2: null,
+    crossSeriesRoiEnabled: true,
 
     // Zoom
     zoom: 100,              // Zoom percentage (25-400)
@@ -83,6 +88,14 @@ const state = {
     worker: null,
     lockCenter: false,       // Lock image to geometric center
     lastAnalysisMode: 'batch', // 'batch' or 'single'
+    // Cross-Series analysis keeps its own accumulator so switching/normal analysis
+    // never clears the merged result set.
+    crossSeriesResults: [],
+    crossSeriesQueue: [],
+    crossSeriesQueueIndex: 0,
+    crossSeriesSkipped: [],
+    crossSeriesSourceKey: null,
+    crossSeriesRunToken: 0,
     exportMode: 'batch',      // 'batch' or 'single' - For tag selection modal
 
     // Line Profile / 線段剖面
@@ -127,8 +140,102 @@ const COMMON_TAGS = [
     { tag: 'x00280010', name: 'Rows' },
     { tag: 'x00280011', name: 'Columns' },
     { tag: 'x00201041', name: 'SliceLocation' },
-    { tag: 'x0008103e', name: 'SeriesDescription' }
+    { tag: 'x0008103e', name: 'SeriesDescription' },
+    // Required cross-Series identity/geometry fields.
+    { tag: 'x00200011', name: 'SeriesNumber' },
+    { tag: 'x0020000e', name: 'SeriesInstanceUID' },
+    { tag: 'x00200052', name: 'FrameOfReferenceUID' },
+    { tag: 'x00080018', name: 'SOPInstanceUID' },
+    { tag: 'x00181030', name: 'ProtocolName' },
+    { tag: 'x00180050', name: 'SliceThickness' },
+    { tag: 'x00280030', name: 'PixelSpacing' },
+    { tag: 'x00181210', name: 'ConvolutionKernel' },
+    { tag: 'x00189315', name: 'ReconstructionAlgorithm' },
+    // GEHC_CT_ADVAPP_001 private tags. Export the source values as-is;
+    // never infer an iterative reconstruction level from a Series name.
+    { tag: 'x00531040', name: 'IterativeReconAnnotation' },
+    { tag: 'x00531041', name: 'IterativeReconMode' },
+    { tag: 'x00531042', name: 'IterativeReconConfiguration' },
+    { tag: 'x00531043', name: 'IterativeReconLevel' }
 ];
+
+// Canonical ROI export columns. Keep this aligned with the validated
+// Water phantom analysis CSV, with SliceThickness added explicitly.
+// ROI 匯出的標準欄位：依已確認的 Water phantom CSV，另加入切片厚度。
+const DEFAULT_ROI_EXPORT_TAGS = [
+    'PatientName',
+    'PatientID',
+    'FileName',
+    'ROI_ID',
+    'ROI_Mean',
+    'ROI_Noise_SD',
+    'FullImage_Mean',
+    'FullImage_SD',
+    'ExposureIndex',
+    'KVP',
+    'SliceLocation',
+    'SliceThickness',
+    'SeriesDescription',
+    'Manufacturer',
+    'XRayTubeCurrent',
+    'Rows',
+    'Columns',
+    'Modality',
+    'StudyDate',
+    'ExposureTime',
+    'Exposure',
+    'ROI_R',
+    'ROI_R_mm',
+    'ROI_Area_mm2',
+    'ROI_X',
+    'ROI_Y',
+    'ROI_Pixels'
+];
+
+// Modality-specific CSV presets. Exposure (0018,1152) is mAs; CT therefore
+// prioritizes kVp, tube current, exposure time, mAs and reconstruction geometry.
+// 依影像類型提供 CSV 預設；CT 優先輸出 kVp、mA、ms、mAs 與重建幾何資訊。
+const CT_ROI_EXPORT_TAGS = [
+    'PatientName', 'PatientID', 'StudyDate', 'Modality', 'Manufacturer',
+    'FileName', 'SeriesDescription', 'SeriesNumber',
+    'KVP', 'XRayTubeCurrent', 'ExposureTime', 'Exposure',
+    'SliceThickness', 'SliceLocation', 'PixelSpacing', 'Rows', 'Columns',
+    'ConvolutionKernel', 'ReconstructionAlgorithm',
+    'IterativeReconAnnotation', 'IterativeReconMode',
+    'IterativeReconConfiguration', 'IterativeReconLevel',
+    'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
+    'ROI_R', 'ROI_R_mm', 'ROI_Area_mm2', 'ROI_X', 'ROI_Y', 'ROI_Pixels'
+];
+
+const XRAY_ROI_EXPORT_TAGS = [
+    'PatientName', 'PatientID', 'StudyDate', 'Modality', 'Manufacturer',
+    'FileName', 'SeriesDescription',
+    'KVP', 'XRayTubeCurrent', 'ExposureTime', 'Exposure',
+    'ExposureIndex', 'TargetExposureIndex', 'DeviationIndex',
+    'Rows', 'Columns',
+    'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
+    'ROI_R', 'ROI_R_mm', 'ROI_Area_mm2', 'ROI_X', 'ROI_Y', 'ROI_Pixels'
+];
+
+const EXPORT_TAG_PRESETS = {
+    ct: CT_ROI_EXPORT_TAGS,
+    xray: XRAY_ROI_EXPORT_TAGS,
+    research: DEFAULT_ROI_EXPORT_TAGS
+};
+
+const REQUIRED_CROSS_SERIES_EXPORT_TAGS = [
+    'SeriesDescription', 'SeriesNumber', 'SliceLocation',
+    'SliceThickness', 'PixelSpacing'
+];
+
+// These identifiers remain available internally for grouping and validation,
+// but must never be included in any user-facing CSV export.
+const NON_EXPORTABLE_TAGS = new Set([
+    'SeriesInstanceUID',
+    'FrameOfReferenceUID',
+    'SOPInstanceUID',
+    'ProtocolName'
+]);
 
 // DICOM Tag 中文翻譯對照表
 const TAG_TRANSLATIONS = {
@@ -165,6 +272,17 @@ const TAG_TRANSLATIONS = {
     'SeriesTime': '系列時間',
     'SeriesDescription': '系列描述',
     'SeriesNumber': '系列編號',
+    'SeriesInstanceUID': 'Series Instance UID',
+    'FrameOfReferenceUID': 'Frame of Reference UID',
+    'ProtocolName': 'Protocol Name',
+    'SliceThickness': 'Slice Thickness',
+    'PixelSpacing': 'Pixel Spacing',
+    'ConvolutionKernel': '重建核心 (Kernel)',
+    'ReconstructionAlgorithm': '重建演算法',
+    'IterativeReconAnnotation': 'GE 迭代重建註記',
+    'IterativeReconMode': 'GE 迭代重建模式',
+    'IterativeReconConfiguration': 'GE 迭代重建設定',
+    'IterativeReconLevel': 'GE 迭代重建等級',
 
     // 設備資訊
     'Modality': '影像類型',
@@ -239,6 +357,16 @@ const elements = {
     sidebarSelectFolderBtn: null,
     sidebarSelectFilesBtn: null,
     sidebarAppendModeToggle: null,
+    activeSeriesCard: null,
+    activeSeriesSummary: null,
+    openSeriesManagerBtn: null,
+    seriesManagerModal: null,
+    closeSeriesManagerBtn: null,
+    seriesImportSummary: null,
+    seriesFilterInput: null,
+    seriesList: null,
+    crossSeriesRoiToggle: null,
+    crossSeriesRoiStatus: null,
 
     // Viewer Panel
     viewerPanel: null,
@@ -311,6 +439,9 @@ const elements = {
 
     // Analysis
     analyzeBtn: null,
+    crossSeriesAnalyzeBtn: null,
+    crossSeriesExportBtn: null,
+    crossSeriesSummary: null,
     singleResultActions: null,
     singleResultInfo: null,
     singleResultTable: null,
@@ -411,6 +542,14 @@ function populateElements() {
     elements.sidebarSelectFolderBtn = document.getElementById('sidebarSelectFolderBtn');
     elements.sidebarSelectFilesBtn = document.getElementById('sidebarSelectFilesBtn');
     elements.sidebarAppendModeToggle = document.getElementById('sidebarAppendModeToggle');
+    elements.activeSeriesCard = document.getElementById('activeSeriesCard');
+    elements.activeSeriesSummary = document.getElementById('activeSeriesSummary');
+    elements.openSeriesManagerBtn = document.getElementById('openSeriesManagerBtn');
+    elements.seriesManagerModal = document.getElementById('seriesManagerModal');
+    elements.closeSeriesManagerBtn = document.getElementById('closeSeriesManagerBtn');
+    elements.seriesImportSummary = document.getElementById('seriesImportSummary');
+    elements.seriesFilterInput = document.getElementById('seriesFilterInput');
+    elements.seriesList = document.getElementById('seriesList');
     elements.viewerPanel = document.getElementById('viewerPanel');
     elements.imageContainer = document.getElementById('imageContainer');
     elements.dicomCanvas = document.getElementById('dicomCanvas');
@@ -426,6 +565,8 @@ function populateElements() {
     elements.roiRadius = document.getElementById('roiRadius');
     elements.roiArea = document.getElementById('roiArea');
     elements.roiPhysicalInfo = document.getElementById('roiPhysicalInfo');
+    elements.crossSeriesRoiToggle = document.getElementById('crossSeriesRoiToggle');
+    elements.crossSeriesRoiStatus = document.getElementById('crossSeriesRoiStatus');
     elements.roiCount = document.getElementById('roiCount');
     elements.roiListContainer = document.getElementById('roiListContainer');
     elements.deleteLastRoiBtn = document.getElementById('deleteLastRoiBtn');
@@ -462,6 +603,9 @@ function populateElements() {
     elements.presetBoneBtn = document.getElementById('presetBoneBtn');
     elements.presetAbdBtn = document.getElementById('presetAbdBtn');
     elements.analyzeBtn = document.getElementById('analyzeBtn');
+    elements.crossSeriesAnalyzeBtn = document.getElementById('crossSeriesAnalyzeBtn');
+    elements.crossSeriesExportBtn = document.getElementById('crossSeriesExportBtn');
+    elements.crossSeriesSummary = document.getElementById('crossSeriesSummary');
     elements.singleResultActions = document.getElementById('singleResultActions');
     elements.singleResultInfo = document.getElementById('singleResultInfo');
     elements.singleResultTable = document.getElementById('singleResultTable');
@@ -831,6 +975,14 @@ function setupEventListeners() {
     // Sidebar selectors / 側邊欄快速載入按鈕
     safeAddListener(elements.sidebarSelectFolderBtn, 'click', () => elements.folderInput && elements.folderInput.click());
     safeAddListener(elements.sidebarSelectFilesBtn, 'click', () => elements.filesInput && elements.filesInput.click());
+    safeAddListener(elements.openSeriesManagerBtn, 'click', openSeriesManager);
+    safeAddListener(elements.closeSeriesManagerBtn, 'click', () => hideModal('seriesManagerModal'));
+    safeAddListener(elements.seriesFilterInput, 'input', renderSeriesManagerList);
+    safeAddListener(elements.seriesList, 'click', (event) => {
+        const button = event.target.closest('[data-series-key]');
+        if (!button) return;
+        activateSeries(decodeURIComponent(button.dataset.seriesKey));
+    });
 
     // Append mode toggles with bilateral synchronization / 累加載入模式勾選（含雙向同步）
     safeAddListener(elements.appendModeToggle, 'change', (e) => {
@@ -847,10 +999,12 @@ function setupEventListeners() {
         }
     });
 
-    // Drag and drop
-    safeAddListener(elements.dropZone, 'dragover', handleDragOver);
-    safeAddListener(elements.dropZone, 'dragleave', handleDragLeave);
-    safeAddListener(elements.dropZone, 'drop', handleDrop);
+    // Keep folder drag-and-drop available before and after a Series is loaded.
+    [elements.dropZone, elements.viewerPanel, elements.seriesManagerModal].forEach(dropTarget => {
+        safeAddListener(dropTarget, 'dragover', handleDragOver);
+        safeAddListener(dropTarget, 'dragleave', handleDragLeave);
+        safeAddListener(dropTarget, 'drop', handleDrop);
+    });
 
     // Image navigation
     safeAddListener(elements.prevBtn, 'click', () => navigateImage(-1));
@@ -870,29 +1024,42 @@ function setupEventListeners() {
     }
 
     // ROI controls
-    safeAddListener(elements.roiRadius, 'change', () => {
-        state.roiRadius = parseInt(elements.roiRadius.value) || 25;
-        state.roiTargetAreaMm2 = null;
-        updateRoiPhysicalInfo();
+safeAddListener(elements.roiRadius, 'change', () => {
+    state.roiRadius = parseInt(elements.roiRadius.value) || 25;
+    state.roiTargetAreaMm2 = null;
+    invalidateCrossSeriesResults('ROI 半徑已變更');
+    updateRoiPhysicalInfo();
         renderImage();
     });
 
     // Area input: target mm² -> pixel radius (rounded to integer, clamped to input range).
     // 面積反推半徑：r = √(A / (π·sx·sy))，四捨五入取整並箝制在 5~200。
-    safeAddListener(elements.roiArea, 'change', () => {
-        const targetArea = parseFloat(elements.roiArea.value);
-        const sp = state.pixelSpacing;
+safeAddListener(elements.roiArea, 'change', () => {
+    const targetArea = parseFloat(elements.roiArea.value);
+    invalidateCrossSeriesResults('ROI 面積設定已變更');
+    const sp = state.pixelSpacing;
         if (!(targetArea > 0)) return;
         state.roiTargetAreaMm2 = targetArea;
         if (!sp || !(sp[0] > 0) || !(sp[1] > 0) || isNaN(sp[0]) || isNaN(sp[1])) {
             showToast('⚠️ 目前影像無 Pixel Spacing，無法由面積換算半徑', 'warning');
             return;
         }
-        updateRoiPhysicalInfo();
-        renderImage();
-    });
+    updateRoiPhysicalInfo();
+    renderImage();
+});
 
-    safeAddListener(elements.deleteLastRoiBtn, 'click', deleteLastRoi);
+safeAddListener(elements.crossSeriesRoiToggle, 'change', (event) => {
+    state.crossSeriesRoiEnabled = event.target.checked;
+    invalidateCrossSeriesResults('跨 Series ROI 設定已變更');
+    updateCrossSeriesRoiStatus(
+        state.crossSeriesRoiEnabled
+            ? '切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊'
+            : '跨 Series ROI 已停用',
+        state.crossSeriesRoiEnabled ? 'info' : 'warning'
+    );
+});
+
+safeAddListener(elements.deleteLastRoiBtn, 'click', deleteLastRoi);
     safeAddListener(elements.clearAllRoiBtn, 'click', clearAllRois);
 
     // WW/WL controls
@@ -932,6 +1099,8 @@ function setupEventListeners() {
 
     // Analysis
     safeAddListener(elements.analyzeBtn, 'click', runAnalysis);
+    safeAddListener(elements.crossSeriesAnalyzeBtn, 'click', runCrossSeriesAnalysis);
+    safeAddListener(elements.crossSeriesExportBtn, 'click', () => openTagModal('cross-series'));
     safeAddListener(elements.singleImageSelect, 'change', updateSingleAnalyzeButton);
     safeAddListener(elements.analyzeSingleBtn, 'click', runSingleImageAnalysis);
     safeAddListener(elements.exportSingleBtn, 'click', () => openTagModal('single'));
@@ -953,6 +1122,9 @@ function setupEventListeners() {
     });
     safeAddListener(elements.selectAllTags, 'click', () => toggleAllTags(true));
     safeAddListener(elements.deselectAllTags, 'click', () => toggleAllTags(false));
+    document.querySelectorAll('[data-export-preset]').forEach(button => {
+        safeAddListener(button, 'click', () => applyExportTagPreset(button.dataset.exportPreset));
+    });
 
     // Display Tag Modal
     safeAddListener(elements.displayTagBtn, 'click', openDisplayTagModal);
@@ -985,10 +1157,15 @@ function setupEventListeners() {
                 showToast('⚠️ 背景分析模組錯誤，已自動切換至相容模式', 'warning', 5000);
                 // If analysis was in progress, restart it on main thread
                 // 若分析已在進行中，在主執行緒重新啟動
-                if (elements.analyzeBtn && elements.analyzeBtn.disabled) {
+            if ((elements.analyzeBtn && elements.analyzeBtn.disabled)
+                || (state.lastAnalysisMode === 'cross-series' && state.crossSeriesQueue.length)) {
                     const filterValue = (elements.sliceLocationFilter && elements.sliceLocationFilter.value)
                         ? elements.sliceLocationFilter.value.trim() : '';
-                    runAnalysisMainThread(filterValue);
+            if (state.lastAnalysisMode === 'cross-series' && state.crossSeriesQueue.length) {
+                runCrossSeriesMainThread();
+            } else {
+                runAnalysisMainThread(filterValue);
+            }
                 }
             };
 
@@ -1012,6 +1189,7 @@ function setupEventListeners() {
             hideModal('tagModal');
             hideModal('displayTagModal');
             hideModal('rawHeaderModal');
+            hideModal('seriesManagerModal');
         });
     });
 
@@ -1025,6 +1203,21 @@ function setupEventListeners() {
  */
 function handleWorkerMessage(e) {
     const { type, completed, total, results, message, fileName } = e.data;
+
+    if (type === 'cross_series_complete') {
+        const [runTokenText, taskIndexText] = String(e.data.taskIndex || '').split(':');
+        const taskIndex = Number(taskIndexText);
+        if (runTokenText !== String(state.crossSeriesRunToken)
+            || !state.crossSeriesQueue.length
+            || taskIndex !== state.crossSeriesQueueIndex) {
+            return;
+        }
+        if (results && results.length) state.crossSeriesResults.push(...results);
+        state.crossSeriesQueueIndex = taskIndex + 1;
+        updateCrossSeriesProgress();
+        processNextCrossSeriesTask();
+        return;
+    }
 
     if (type === 'progress') {
         const progress = Math.round(completed / total * 100);
@@ -1088,21 +1281,80 @@ function finishAnalysis() {
 // ============================================
 function handleDragOver(e) {
     e.preventDefault();
-    elements.dropZone.classList.add('drag-over');
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (e.currentTarget) e.currentTarget.classList.add('drag-over');
 }
 
 function handleDragLeave(e) {
     e.preventDefault();
-    elements.dropZone.classList.remove('drag-over');
+    if (!e.currentTarget || !e.currentTarget.contains(e.relatedTarget)) {
+        if (e.currentTarget) e.currentTarget.classList.remove('drag-over');
+    }
+}
+
+function isIgnoredDropFile(file) {
+    return !file || file.size <= 0 || file.name.startsWith('.') ||
+        file.name.startsWith('._') || file.name === 'Icon\r';
+}
+
+// Traverse modern File System Access handles exposed by Chromium/Edge.
+// Chromium 的新版拖放 API 會回傳 FileSystemHandle；在部分 macOS / file://
+// 組合中，舊版 FileSystemEntry API 雖然存在，卻可能回傳 null。
+async function collectFilesFromDroppedHandle(rootHandle, files, onFile) {
+    if (!rootHandle) return;
+
+    const queue = [rootHandle];
+    let queueIndex = 0;
+
+    while (queueIndex < queue.length) {
+        const handle = queue[queueIndex++];
+
+        if (handle.kind === 'file' && typeof handle.getFile === 'function') {
+            try {
+                const file = await handle.getFile();
+                if (!isIgnoredDropFile(file)) {
+                    files.push(file);
+                    if (onFile) onFile(file);
+                }
+            } catch (error) {
+                console.warn(`[handleDrop] Skip unreadable file handle: ${handle.name || '(unnamed)'}`, error);
+            }
+        } else if (handle.kind === 'directory') {
+            try {
+                if (typeof handle.values === 'function') {
+                    for await (const childHandle of handle.values()) {
+                        queue.push(childHandle);
+                    }
+                } else if (typeof handle.entries === 'function') {
+                    for await (const [, childHandle] of handle.entries()) {
+                        queue.push(childHandle);
+                    }
+                }
+            } catch (error) {
+                console.warn(`[handleDrop] Skip unreadable directory handle: ${handle.name || '(unnamed)'}`, error);
+            }
+        }
+
+        if (queueIndex % 50 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
 }
 
 async function handleDrop(e) {
     e.preventDefault();
-    elements.dropZone.classList.remove('drag-over');
+    e.stopPropagation();
+    [elements.dropZone, elements.viewerPanel, elements.seriesManagerModal].forEach(dropTarget => {
+        if (dropTarget) dropTarget.classList.remove('drag-over');
+    });
 
-    const items = e.dataTransfer.items;
+    // Snapshot the DataTransfer synchronously. Some browsers invalidate it as
+    // soon as this async handler yields while traversing a directory.
+    const items = Array.from((e.dataTransfer && e.dataTransfer.items) || []);
+    const fallbackFiles = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
     const files = [];
     const queue = [];
+    const handlePromises = [];
     let count = 0;
 
     showLoading('正在讀取拖曳項目...');
@@ -1114,8 +1366,43 @@ async function handleDrop(e) {
     for (const item of items) {
         if (item.kind === 'file') {
             hasFileItems = true;
-            const entry = item.webkitGetAsEntry();
-            if (entry) queue.push(entry);
+
+            // Capture the modern handle promise before the drop event loses user
+            // activation. It is awaited only if legacy directory traversal fails.
+            // 必須在 drop 事件仍有使用者啟用狀態時立即取得 Promise。
+            if (typeof item.getAsFileSystemHandle === 'function') {
+                try {
+                    handlePromises.push(
+                        Promise.resolve(item.getAsFileSystemHandle()).catch(error => {
+                            console.warn('[handleDrop] Unable to read dropped file-system handle', error);
+                            return null;
+                        })
+                    );
+                } catch (error) {
+                    console.warn('[handleDrop] Unable to request dropped file-system handle', error);
+                }
+            }
+
+            let entry = null;
+
+            // Edge can expose getAsEntry() but return null while the prefixed
+            // implementation still works, so try both instead of using `||`.
+            // 逐一嘗試，避免第一個方法存在但回傳 null 時漏掉可用退回方法。
+            const entryGetters = [item.getAsEntry, item.webkitGetAsEntry];
+            for (const getEntry of entryGetters) {
+                if (entry || typeof getEntry !== 'function') continue;
+                try {
+                    entry = getEntry.call(item);
+                } catch (error) {
+                    console.warn('[handleDrop] Unable to read dropped entry', error);
+                }
+            }
+            if (entry) {
+                queue.push(entry);
+            } else if (typeof item.getAsFile === 'function') {
+                const file = item.getAsFile();
+                if (file && file.size > 0 && !isIgnoredDropFile(file)) files.push(file);
+            }
         }
     }
 
@@ -1141,8 +1428,7 @@ async function handleDrop(e) {
             if (file) {
                 // Filter out macOS metadata and hidden files to save memory and CPU
                 // 過濾 macOS 中介資料及隱藏檔案以節省記憶體與 CPU 資源
-                const isHidden = file.name.startsWith('.') || file.name.startsWith('._') || file.name === 'Icon\r';
-                if (!isHidden) {
+                if (!isIgnoredDropFile(file)) {
                     files.push(file);
                     count++;
 
@@ -1179,14 +1465,28 @@ async function handleDrop(e) {
         }
     }
 
+    // If the legacy entry API yielded no readable files, use the modern
+    // File System Access handles captured synchronously above.
+    // 舊 API 無法讀取內容時，改用 Edge / Chromium 的新版 Handle API。
+    if (files.length === 0 && handlePromises.length > 0) {
+        const handles = await Promise.all(handlePromises);
+        for (const handle of handles) {
+            await collectFilesFromDroppedHandle(handle, files, () => {
+                count++;
+                if (count % 50 === 0) {
+                    showLoading(`正在搜尋資料夾 (已找到 ${count} 個檔案)...`);
+                }
+            });
+        }
+    }
+
     // Fallback: If no files were gathered via webkitGetAsEntry (typical for local file:// protocol sandboxes),
     // but e.dataTransfer.files is populated, read those directly to bypass sandboxing.
     // 退回機制：如果透過 webkitGetAsEntry 未收集到任何檔案（本地 file:// 協議沙箱下常見），但 e.dataTransfer.files 存在檔案，則直接使用。
     if (files.length === 0) {
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            for (const file of e.dataTransfer.files) {
-                const isHidden = file.name.startsWith('.') || file.name.startsWith('._') || file.name === 'Icon\r';
-                if (!isHidden) {
+        if (fallbackFiles.length > 0) {
+            for (const file of fallbackFiles) {
+                if (!isIgnoredDropFile(file)) {
                     files.push(file);
                 }
             }
@@ -1198,6 +1498,12 @@ async function handleDrop(e) {
             hideLoading();
             return;
         }
+    }
+
+    if (files.length === 0) {
+        hideLoading();
+        showToast('⚠️ 拖曳項目中沒有可讀取的檔案，請改按「選擇資料夾」', 'warning', 7000);
+        return;
     }
 
     await loadDICOMFiles(files);
@@ -1213,36 +1519,585 @@ async function handleFileSelect(e) {
     await loadDICOMFiles(files);
 }
 
-async function loadDICOMFiles(files) {
-    if (!state.appendMode) {
-        state.files = [];
+function getDicomString(dataSet, tag, fallback = '') {
+    try {
+        const value = dataSet && dataSet.string(tag);
+        return value === undefined || value === null ? fallback : String(value).trim();
+    } catch (error) {
+        return fallback;
+    }
+}
+
+function getDicomNumber(dataSet, tag) {
+    const stringValue = getDicomString(dataSet, tag, '');
+    if (stringValue !== '') {
+        const numberValue = Number(stringValue.split('\\')[0]);
+        if (Number.isFinite(numberValue)) return numberValue;
+    }
+    try {
+        const value = dataSet.uint16(tag);
+        return Number.isFinite(value) ? value : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Values used in CSV exports. Rows and Columns are unsigned-short DICOM
+// values, so dataSet.string() returns nothing for them in dicomParser.
+// CSV 匯出值：Rows / Columns 為 US 數值型標籤，需以 uint16 讀取。
+function getDicomSliceLocationValue(dataSet) {
+    const storedLocation = getDicomString(dataSet, 'x00201041', '');
+    if (storedLocation) return storedLocation;
+
+    // Some CT scanners omit (0020,1041) but provide Image Position/Orientation.
+    // Use the position projected onto the slice normal as a reliable fallback.
+    const position = getDicomString(dataSet, 'x00200032', '').split('\\').map(Number);
+    const orientation = getDicomString(dataSet, 'x00200037', '').split('\\').map(Number);
+    if (
+        position.length >= 3 &&
+        orientation.length >= 6 &&
+        position.slice(0, 3).every(Number.isFinite) &&
+        orientation.slice(0, 6).every(Number.isFinite)
+    ) {
+        const row = orientation.slice(0, 3);
+        const column = orientation.slice(3, 6);
+        const normal = [
+            row[1] * column[2] - row[2] * column[1],
+            row[2] * column[0] - row[0] * column[2],
+            row[0] * column[1] - row[1] * column[0]
+        ];
+        const coordinate = position[0] * normal[0]
+            + position[1] * normal[1]
+            + position[2] * normal[2];
+        if (Number.isFinite(coordinate)) return String(coordinate);
     }
 
-    // Filter out duplicates if in append mode / 在累加模式下過濾重複選取的檔案
-    let filesToLoad = files;
-    if (state.appendMode && state.files.length > 0) {
-        filesToLoad = files.filter(file => {
-            const isDuplicate = state.files.some(f => f.file.name === file.name && f.file.size === file.size);
-            return !isDuplicate;
-        });
+    const zPosition = Number(position[2]);
+    return Number.isFinite(zPosition) ? String(zPosition) : '';
+}
 
-        const skippedCount = files.length - filesToLoad.length;
-        if (skippedCount > 0) {
-            console.log(`[loadDICOMFiles] Skipped ${skippedCount} duplicate files.`);
+function getDicomExportValue(dataSet, tag) {
+    if (tag.startsWith('x0053104')
+        && getDicomString(dataSet, 'x00530010', '') !== 'GEHC_CT_ADVAPP_001') {
+        return '';
+    }
+    if (tag === 'x00201041') {
+        return getDicomSliceLocationValue(dataSet);
+    }
+    if (tag === 'x00280010' || tag === 'x00280011') {
+        const value = getDicomNumber(dataSet, tag);
+        return value === null ? '' : value;
+    }
+    return getDicomString(dataSet, tag, '');
+}
+
+function normalizeDicomMultiValue(value, precision = 5) {
+    if (!value) return '';
+    return String(value)
+        .split('\\')
+        .map(part => {
+            const numberValue = Number(part);
+            return Number.isFinite(numberValue) ? numberValue.toFixed(precision) : part.trim();
+        })
+        .join('\\');
+}
+
+function makeSeriesKey(fileObject) {
+    const dataSet = fileObject.dataSet;
+    const studyUID = getDicomString(dataSet, 'x0020000d', 'NO_STUDY_UID');
+    const seriesUID = getDicomString(dataSet, 'x0020000e', '');
+    if (seriesUID) return `${studyUID}::${seriesUID}`;
+
+    const fallbackParts = [
+        getDicomString(dataSet, 'x00200011', 'NO_SERIES_NUMBER'),
+        getDicomString(dataSet, 'x0008103e', ''),
+        getDicomString(dataSet, 'x00181030', ''),
+        getDicomNumber(dataSet, 'x00280010') || '',
+        getDicomNumber(dataSet, 'x00280011') || '',
+        normalizeDicomMultiValue(getDicomString(dataSet, 'x00280030', ''))
+    ];
+    return `${studyUID}::FALLBACK::${fallbackParts.join('|')}`;
+}
+
+function getDicomSliceCoordinate(fileObject) {
+    const dataSet = fileObject.dataSet;
+    const position = getDicomString(dataSet, 'x00200032', '').split('\\').map(Number);
+    const orientation = getDicomString(dataSet, 'x00200037', '').split('\\').map(Number);
+    if (position.length >= 3 && orientation.length >= 6 &&
+        position.every(Number.isFinite) && orientation.every(Number.isFinite)) {
+        const row = orientation.slice(0, 3);
+        const column = orientation.slice(3, 6);
+        const normal = [
+            row[1] * column[2] - row[2] * column[1],
+            row[2] * column[0] - row[0] * column[2],
+            row[0] * column[1] - row[1] * column[0]
+        ];
+        return position[0] * normal[0] + position[1] * normal[1] + position[2] * normal[2];
+    }
+
+    const sliceLocation = Number(getDicomString(dataSet, 'x00201041', ''));
+    return Number.isFinite(sliceLocation) ? sliceLocation : null;
+}
+
+function compareDicomSlices(a, b) {
+    const coordinateA = getDicomSliceCoordinate(a);
+    const coordinateB = getDicomSliceCoordinate(b);
+    if (coordinateA !== null && coordinateB !== null && coordinateA !== coordinateB) {
+        return coordinateA - coordinateB;
+    }
+
+    const instanceA = Number(getDicomString(a.dataSet, 'x00200013', ''));
+    const instanceB = Number(getDicomString(b.dataSet, 'x00200013', ''));
+    if (Number.isFinite(instanceA) && Number.isFinite(instanceB) && instanceA !== instanceB) {
+        return instanceA - instanceB;
+    }
+
+    return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function getDicomVector(dataSet, tag, expectedLength) {
+    const values = getDicomString(dataSet, tag, '').split('\\').map(Number);
+    return values.length >= expectedLength && values.slice(0, expectedLength).every(Number.isFinite)
+        ? values.slice(0, expectedLength)
+        : null;
+}
+
+function vectorDot(a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function vectorSubtract(a, b) {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function normalizeVector(vector) {
+    const length = Math.sqrt(vectorDot(vector, vector));
+    return length > 0 ? vector.map(value => value / length) : null;
+}
+
+function getDicomImageGeometry(dataSet) {
+    if (!dataSet) return null;
+    const position = getDicomVector(dataSet, 'x00200032', 3);
+    const orientation = getDicomVector(dataSet, 'x00200037', 6);
+    const spacing = getDicomVector(dataSet, 'x00280030', 2);
+    const rows = getDicomNumber(dataSet, 'x00280010');
+    const columns = getDicomNumber(dataSet, 'x00280011');
+    if (!position || !orientation || !spacing || !(spacing[0] > 0) || !(spacing[1] > 0) || !rows || !columns) {
+        return null;
+    }
+
+    const xDirection = normalizeVector(orientation.slice(0, 3));
+    const yDirection = normalizeVector(orientation.slice(3, 6));
+    if (!xDirection || !yDirection) return null;
+    const normal = normalizeVector([
+        xDirection[1] * yDirection[2] - xDirection[2] * yDirection[1],
+        xDirection[2] * yDirection[0] - xDirection[0] * yDirection[2],
+        xDirection[0] * yDirection[1] - xDirection[1] * yDirection[0]
+    ]);
+    if (!normal) return null;
+
+    return {
+        position,
+        xDirection,
+        yDirection,
+        normal,
+        rowSpacing: spacing[0],
+        columnSpacing: spacing[1],
+        rows,
+        columns,
+        frameOfReferenceUID: getDicomString(dataSet, 'x00200052', ''),
+        studyUID: getDicomString(dataSet, 'x0020000d', '')
+    };
+}
+
+function patientPointFromPixel(center, geometry) {
+    return [0, 1, 2].map(index =>
+        geometry.position[index] +
+        geometry.xDirection[index] * center.x * geometry.columnSpacing +
+        geometry.yDirection[index] * center.y * geometry.rowSpacing
+    );
+}
+
+function pixelFromPatientPoint(point, geometry) {
+    const offset = vectorSubtract(point, geometry.position);
+    return {
+        x: vectorDot(offset, geometry.xDirection) / geometry.columnSpacing,
+        y: vectorDot(offset, geometry.yDirection) / geometry.rowSpacing
+    };
+}
+
+function createRoiPatientAnchor(center, dataSet) {
+    const geometry = getDicomImageGeometry(dataSet);
+    if (!geometry) return null;
+    return {
+        point: patientPointFromPixel(center, geometry),
+        normal: geometry.normal,
+        frameOfReferenceUID: geometry.frameOfReferenceUID,
+        studyUID: geometry.studyUID
+    };
+}
+
+function updateCrossSeriesRoiStatus(message, tone = 'info') {
+    if (!elements.crossSeriesRoiStatus) return;
+    elements.crossSeriesRoiStatus.textContent = message;
+    elements.crossSeriesRoiStatus.dataset.tone = tone;
+}
+
+function prepareCrossSeriesRoiTransfer(targetSeries) {
+    if (!state.roiCenters.length) return null;
+
+    let anchors = state.roiPatientAnchors;
+    if (anchors.length !== state.roiCenters.length || anchors.some(anchor => !anchor)) {
+        anchors = state.roiCenters.map(center => createRoiPatientAnchor(center, state.currentDS));
+    }
+    if (anchors.some(anchor => !anchor)) {
+        return { success: false, message: '目前影像缺少 Image Position、Orientation 或 Pixel Spacing，無法安全對齊 ROI' };
+    }
+
+    const targetGeometries = targetSeries.files.map((fileObject, index) => ({
+        index,
+        geometry: getDicomImageGeometry(fileObject.dataSet)
+    })).filter(item => item.geometry);
+    if (!targetGeometries.length) {
+        return { success: false, message: '目標 Series 缺少 DICOM 幾何資訊，無法安全對齊 ROI' };
+    }
+
+    const sourceFrame = anchors.find(anchor => anchor.frameOfReferenceUID)?.frameOfReferenceUID || '';
+    const targetFrames = new Set(targetGeometries.map(item => item.geometry.frameOfReferenceUID).filter(Boolean));
+    if (targetFrames.size > 1) {
+        return { success: false, message: '目標 Series 含多個 Frame of Reference，已停止 ROI 對齊' };
+    }
+    const targetFrame = targetFrames.values().next().value || '';
+    if (sourceFrame && targetFrame && sourceFrame !== targetFrame) {
+        return { success: false, message: 'Frame of Reference 不同，為避免錯位未沿用 ROI' };
+    }
+
+    const sourceStudy = anchors.find(anchor => anchor.studyUID)?.studyUID || '';
+    if ((!sourceFrame || !targetFrame) && sourceStudy && targetSeries.studyUID && sourceStudy !== targetSeries.studyUID) {
+        return { success: false, message: '缺少可驗證的 Frame of Reference 且 Study 不同，未沿用 ROI' };
+    }
+
+    const mappedCenters = [];
+    let targetIndex = 0;
+    let targetGeometry = null;
+    for (const [anchorIndex, anchor] of anchors.entries()) {
+        let nearest = null;
+        for (const candidate of targetGeometries) {
+            const normalAgreement = Math.abs(vectorDot(anchor.normal, candidate.geometry.normal));
+            if (normalAgreement < 0.995) continue;
+            const distance = Math.abs(vectorDot(
+                vectorSubtract(anchor.point, candidate.geometry.position),
+                candidate.geometry.normal
+            ));
+            if (!nearest || distance < nearest.distance) nearest = { ...candidate, distance };
+        }
+        if (!nearest) {
+            return { success: false, message: 'Series 切面方向不同，無法安全投影 ROI' };
+        }
+
+        const mapped = pixelFromPatientPoint(anchor.point, nearest.geometry);
+        if (mapped.x < 0 || mapped.y < 0 || mapped.x >= nearest.geometry.columns || mapped.y >= nearest.geometry.rows) {
+            return { success: false, message: 'ROI 投影後超出目標影像範圍，未沿用 ROI' };
+        }
+        mappedCenters.push({ x: Math.round(mapped.x), y: Math.round(mapped.y) });
+        if (anchorIndex === 0) {
+            targetIndex = nearest.index;
+            targetGeometry = nearest.geometry;
         }
     }
 
+    const sourceGeometry = getDicomImageGeometry(state.currentDS);
+    let radius = state.roiRadius;
+    if (sourceGeometry && targetGeometry) {
+        const physicalArea = state.roiTargetAreaMm2 > 0
+            ? state.roiTargetAreaMm2
+            : Math.PI * state.roiRadius * state.roiRadius * sourceGeometry.rowSpacing * sourceGeometry.columnSpacing;
+        radius = Math.round(Math.sqrt(physicalArea / (Math.PI * targetGeometry.rowSpacing * targetGeometry.columnSpacing)));
+        radius = Math.min(200, Math.max(5, radius));
+    }
+
+    const frameNote = sourceFrame && targetFrame
+        ? 'Frame of Reference 已驗證'
+        : 'Frame UID 缺漏；以同 Study 幾何資訊對齊';
+    return {
+        success: true,
+        centers: mappedCenters,
+        anchors,
+        targetIndex,
+        radius,
+        message: `已將 ${mappedCenters.length} 個 ROI 對齊至目標 Series（${frameNote}）`
+    };
+}
+
+function buildSeriesIndex() {
+    const groups = new Map();
+
+    state.allFiles.forEach(fileObject => {
+        const key = makeSeriesKey(fileObject);
+        if (!groups.has(key)) {
+            const dataSet = fileObject.dataSet;
+            groups.set(key, {
+                key,
+                studyUID: getDicomString(dataSet, 'x0020000d', ''),
+                seriesUID: getDicomString(dataSet, 'x0020000e', ''),
+                frameOfReferenceUID: getDicomString(dataSet, 'x00200052', ''),
+                seriesNumber: getDicomString(dataSet, 'x00200011', ''),
+                description: getDicomString(dataSet, 'x0008103e', ''),
+                protocolName: getDicomString(dataSet, 'x00181030', ''),
+                modality: getDicomString(dataSet, 'x00080060', ''),
+                kvp: getDicomString(dataSet, 'x00180060', ''),
+                sliceThickness: getDicomString(dataSet, 'x00180050', ''),
+                kernel: getDicomString(dataSet, 'x00181210', ''),
+                pixelSpacing: getDicomString(dataSet, 'x00280030', ''),
+                rows: getDicomNumber(dataSet, 'x00280010'),
+                columns: getDicomNumber(dataSet, 'x00280011'),
+                files: [],
+                warnings: []
+            });
+        }
+        groups.get(key).files.push(fileObject);
+    });
+
+    groups.forEach(series => {
+        series.files.sort(compareDicomSlices);
+
+        const uniqueValues = tag => new Set(series.files
+            .map(fileObject => normalizeDicomMultiValue(getDicomString(fileObject.dataSet, tag, '')))
+            .filter(Boolean));
+        const matrixValues = new Set(series.files.map(fileObject => {
+            const rows = getDicomNumber(fileObject.dataSet, 'x00280010');
+            const columns = getDicomNumber(fileObject.dataSet, 'x00280011');
+            return rows && columns ? `${rows}×${columns}` : '';
+        }).filter(Boolean));
+        const sopUIDs = series.files
+            .map(fileObject => getDicomString(fileObject.dataSet, 'x00080018', ''))
+            .filter(Boolean);
+        const compressedCount = series.files.filter(fileObject => checkTransferSyntax(fileObject.dataSet)).length;
+        const imageTypeText = series.files
+            .map(fileObject => getDicomString(fileObject.dataSet, 'x00080008', ''))
+            .join(' ')
+            .toUpperCase();
+        const descriptionText = `${series.description} ${series.protocolName}`.toUpperCase();
+
+        if (!series.seriesUID) series.warnings.push('缺少 SeriesInstanceUID，已使用替代分組規則');
+        if (matrixValues.size > 1) series.warnings.push('Series 內含不同影像矩陣');
+        if (uniqueValues('x00280030').size > 1) series.warnings.push('Series 內 Pixel Spacing 不一致');
+        if (uniqueValues('x00200037').size > 1) series.warnings.push('Series 內 Image Orientation 不一致');
+        if (uniqueValues('x00200052').size > 1) series.warnings.push('Series 內 Frame of Reference 不一致');
+        if (uniqueValues('x00020010').size > 1) series.warnings.push('Series 內 Transfer Syntax 不一致');
+        if (sopUIDs.length !== new Set(sopUIDs).size) series.warnings.push('偵測到重複 SOP Instance UID');
+        if (compressedCount > 0) series.warnings.push(`含 ${compressedCount} 張壓縮 DICOM，可能無法顯示`);
+        if (imageTypeText.includes('LOCALIZER') || descriptionText.includes('LOCALIZER') || descriptionText.includes('SCOUT')) {
+            series.warnings.push('可能為 Scout／Localizer 影像');
+        }
+    });
+
+    state.seriesMap = groups;
+}
+
+function escapeSeriesHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getSeriesDisplayName(series) {
+    return series.description || series.protocolName ||
+        `Series ${series.seriesNumber || '未命名'}`;
+}
+
+function renderSeriesManagerList() {
+    if (!elements.seriesList) return;
+    const query = (elements.seriesFilterInput && elements.seriesFilterInput.value || '').trim().toLowerCase();
+    const seriesList = Array.from(state.seriesMap.values())
+        .sort((a, b) => {
+            const numberA = Number(a.seriesNumber);
+            const numberB = Number(b.seriesNumber);
+            if (Number.isFinite(numberA) && Number.isFinite(numberB) && numberA !== numberB) {
+                return numberA - numberB;
+            }
+            return getSeriesDisplayName(a).localeCompare(getSeriesDisplayName(b), undefined, { numeric: true });
+        })
+        .filter(series => {
+            if (!query) return true;
+            return [series.description, series.protocolName, series.modality, series.kvp,
+                series.sliceThickness, series.kernel, series.pixelSpacing, series.seriesNumber]
+                .some(value => String(value || '').toLowerCase().includes(query));
+        });
+
+    const warningSeriesCount = Array.from(state.seriesMap.values())
+        .filter(series => series.warnings.length > 0).length;
+    if (elements.seriesImportSummary) {
+        elements.seriesImportSummary.textContent =
+            `${state.allFiles.length} 張影像 · ${state.seriesMap.size} 個 Series` +
+            (warningSeriesCount ? ` · ${warningSeriesCount} 個需注意` : '');
+    }
+
+    if (seriesList.length === 0) {
+        elements.seriesList.innerHTML = '<div class="series-list-empty">找不到符合條件的 Series</div>';
+        return;
+    }
+
+    elements.seriesList.innerHTML = seriesList.map(series => {
+        const isActive = series.key === state.activeSeriesKey;
+        const meta = [
+            series.seriesNumber ? `Series #${series.seriesNumber}` : '',
+            series.modality,
+            `${series.files.length} images`,
+            series.kvp ? `${series.kvp} kVp` : '',
+            series.sliceThickness ? `${series.sliceThickness} mm` : '',
+            series.kernel ? `Kernel: ${series.kernel}` : '',
+            series.pixelSpacing ? `Spacing: ${series.pixelSpacing.replace(/\\/g, ' × ')} mm` : '',
+            series.rows && series.columns ? `${series.rows} × ${series.columns}` : ''
+        ].filter(Boolean);
+        const visibleWarnings = series.warnings.slice(0, 3);
+        const remainingWarnings = series.warnings.length - visibleWarnings.length;
+        const warningText = visibleWarnings.length
+            ? `⚠️ ${visibleWarnings.map(escapeSeriesHtml).join('；')}` +
+                (remainingWarnings > 0 ? `；另有 ${remainingWarnings} 項` : '')
+            : '';
+
+        return `
+            <div class="series-item${isActive ? ' is-active' : ''}">
+                <div>
+                    <div class="series-item-title">
+                        ${escapeSeriesHtml(getSeriesDisplayName(series))}
+                        <span class="series-status-badge${series.warnings.length ? ' has-warning' : ''}">
+                            ${series.warnings.length ? '需注意' : '可分析'}
+                        </span>
+                    </div>
+                    <div class="series-item-meta">
+                        ${meta.map(value => `<span>${escapeSeriesHtml(value)}</span>`).join('')}
+                    </div>
+                    ${warningText ? `<div class="series-item-warnings">${warningText}</div>` : ''}
+                </div>
+                <div class="series-item-actions">
+                    <button class="btn btn-primary btn-sm" data-series-key="${encodeURIComponent(series.key)}" ${isActive ? 'disabled' : ''}>
+                        ${isActive ? '目前使用' : '開啟分析'}
+                    </button>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function updateActiveSeriesCard() {
+    const series = state.seriesMap.get(state.activeSeriesKey);
+    if (!series || !elements.activeSeriesCard || !elements.activeSeriesSummary) return;
+
+    elements.activeSeriesCard.classList.remove('hidden');
+    const meta = [
+        `${series.files.length} images`,
+        series.kvp ? `${series.kvp} kVp` : '',
+        series.sliceThickness ? `${series.sliceThickness} mm` : '',
+        series.kernel ? `Kernel: ${series.kernel}` : ''
+    ].filter(Boolean).join(' · ');
+    elements.activeSeriesSummary.innerHTML = `
+        <div class="active-series-title">${escapeSeriesHtml(getSeriesDisplayName(series))}</div>
+        <div class="active-series-meta">${escapeSeriesHtml(meta)}</div>
+        ${series.warnings.length ? `<div class="series-item-warnings">⚠️ ${series.warnings.length} 項需注意</div>` : ''}`;
+}
+
+function openSeriesManager() {
+    renderSeriesManagerList();
+    showModal('seriesManagerModal');
+}
+
+function activateSeries(seriesKey, options = {}) {
+    const series = state.seriesMap.get(seriesKey);
+    if (!series) return;
+
+    const previousSeriesKey = state.activeSeriesKey;
+    const preserveAnnotations = options.preserveAnnotations === true && previousSeriesKey === seriesKey;
+    const switchingSeries = Boolean(previousSeriesKey && previousSeriesKey !== seriesKey);
+    const roiTransfer = switchingSeries && state.crossSeriesRoiEnabled
+        ? prepareCrossSeriesRoiTransfer(series)
+        : null;
+
+    state.activeSeriesKey = seriesKey;
+    state.files = series.files;
+    state.currentIndex = Math.min(state.currentIndex, Math.max(0, state.files.length - 1));
+
+    if (!preserveAnnotations) {
+        if (roiTransfer && roiTransfer.success) {
+            state.currentIndex = roiTransfer.targetIndex;
+            state.roiCenters = roiTransfer.centers;
+            state.roiPatientAnchors = roiTransfer.anchors;
+            state.roiRadius = roiTransfer.radius;
+            if (elements.roiRadius) elements.roiRadius.value = state.roiRadius;
+        } else {
+            state.currentIndex = 0;
+            state.roiCenters = [];
+            state.roiPatientAnchors = [];
+        }
+        state.lines = [];
+        state.activeLineIndex = -1;
+        state.lineStart = null;
+        state.lineEnd = null;
+        state.lineProfileData = [];
+        state.imageWWWL = [];
+        state.imageRotations = [];
+        state.results = [];
+        updateRoiControls();
+        updateLineUI();
+    }
+
+    elements.dropZone.classList.add('hidden');
+    elements.viewerPanel.classList.remove('hidden');
+    elements.imageSlider.max = Math.max(0, state.files.length - 1);
+    elements.imageSlider.value = state.currentIndex;
+    updateActiveSeriesCard();
+    updateSingleImageSelect();
+    updateAnalyzeButton();
+    renderSeriesManagerList();
+    hideModal('seriesManagerModal');
+    loadImage(state.currentIndex);
+    if (roiTransfer) {
+        updateCrossSeriesRoiStatus(roiTransfer.message, roiTransfer.success ? 'success' : 'warning');
+        if (!roiTransfer.success) showToast(`⚠️ ${roiTransfer.message}`, 'warning', 7000);
+    } else if (switchingSeries && !state.crossSeriesRoiEnabled) {
+        updateCrossSeriesRoiStatus('跨 Series ROI 已停用', 'warning');
+    }
+    const roiTransferText = roiTransfer && roiTransfer.success ? `；已對齊 ${state.roiCenters.length} 個 ROI` : '';
+    showToast(`🗂️ 已切換至 ${getSeriesDisplayName(series)}（${series.files.length} 張）${roiTransferText}`, 'success');
+}
+
+async function loadDICOMFiles(files) {
+    if (!state.appendMode) {
+        state.allFiles = [];
+        state.files = [];
+        state.seriesMap = new Map();
+        state.activeSeriesKey = null;
+        state.roiPatientAnchors = [];
+        if (elements.activeSeriesCard) elements.activeSeriesCard.classList.add('hidden');
+    }
+
+    // DICOM files from different Series often reuse names such as I10/I20 and
+    // can even have the same byte size. Parse first, then deduplicate by the
+    // globally unique SOP Instance UID instead of file name + size.
+    const filesToLoad = files;
+    const knownSopInstanceUIDs = new Set(
+        state.allFiles
+            .map(fileObject => getDicomString(fileObject.dataSet, 'x00080018', ''))
+            .filter(Boolean)
+    );
+    let duplicateCount = 0;
+
     if (filesToLoad.length === 0) {
-        if (state.files.length > 0) {
+        if (state.allFiles.length > 0) {
             showToast('⚠️ 所選項目皆已存在於影像清單中', 'warning');
+            hideLoading();
             return;
         } else {
             showToast('⚠️ 未找到任何檔案', 'warning');
+            hideLoading();
             return;
         }
     }
 
-    const initialCount = state.files.length;
+    const initialCount = state.allFiles.length;
     const total = filesToLoad.length;
     const batchSize = 25;
 
@@ -1282,53 +2137,65 @@ async function loadDICOMFiles(files) {
                 return null;
             }));
 
-            // Filter valid DICOM files and add to state
+            // Filter valid DICOM files and deduplicate by SOP Instance UID.
             results.forEach(res => {
-                if (res) state.files.push(res);
+                if (!res) return;
+
+                const sopInstanceUID = getDicomString(res.dataSet, 'x00080018', '');
+                if (sopInstanceUID && knownSopInstanceUIDs.has(sopInstanceUID)) {
+                    duplicateCount++;
+                    return;
+                }
+
+                if (sopInstanceUID) knownSopInstanceUIDs.add(sopInstanceUID);
+                state.allFiles.push(res);
             });
         }
     } finally {
         hideLoading();
     }
 
-    // Sort loaded slices into anatomical order before display:
-    // SeriesInstanceUID -> SliceLocation -> InstanceNumber -> numeric filename.
-    // 載入後先按 Series 分組、再按物理位置/編號排序，避免 I10/I100 檔名排序造成播放跳片。
-    // Without this, browser file order (I10, I100, I110... I20) scrambles playback.
-    if (state.files.length > 1) {
-        state.files.sort((a, b) => {
-            const seriesA = a.dataSet.string('x0020000e') || '';
-            const seriesB = b.dataSet.string('x0020000e') || '';
-            if (seriesA !== seriesB) {
-                return seriesA.localeCompare(seriesB);
-            }
-            const locA = parseFloat(a.dataSet.string('x00201041'));
-            const locB = parseFloat(b.dataSet.string('x00201041'));
-            if (!isNaN(locA) && !isNaN(locB) && locA !== locB) {
-                return locA - locB;
-            }
-            const instA = parseInt(a.dataSet.string('x00200013'), 10);
-            const instB = parseInt(b.dataSet.string('x00200013'), 10);
-            if (!isNaN(instA) && !isNaN(instB) && instA !== instB) {
-                return instA - instB;
-            }
-            return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
-        });
-    }
-    
-    const loadedCount = state.files.length - initialCount;
-    const validCount = state.files.length;
+    buildSeriesIndex();
+
+    const loadedCount = state.allFiles.length - initialCount;
+    const validCount = state.allFiles.length;
     if (loadedCount > 0) {
-        showToast(`✅ 匯入成功！共載入 ${loadedCount} 張影像 (忽略 ${filesToLoad.length - loadedCount} 個非影像檔案)`, 'success');
+        invalidateCrossSeriesResults('新增 DICOM 影像');
+        const invalidCount = Math.max(0, filesToLoad.length - loadedCount - duplicateCount);
+        const detailParts = [];
+        if (invalidCount > 0) detailParts.push(`忽略 ${invalidCount} 個非影像檔案`);
+        if (duplicateCount > 0) detailParts.push(`略過 ${duplicateCount} 張重複影像`);
+        const detailText = detailParts.length > 0 ? ` (${detailParts.join('；')})` : '';
+        showToast(`✅ 匯入成功！共載入 ${loadedCount} 張影像${detailText}`, 'success');
+    } else if (duplicateCount > 0) {
+        showToast(`⚠️ 所選 ${duplicateCount} 張 DICOM 影像皆已存在`, 'warning');
     }
 
     // Check for compressed transfer syntax
-    const compressedFiles = state.files.filter(f => checkTransferSyntax(f.dataSet));
+    const compressedFiles = state.allFiles.filter(f => checkTransferSyntax(f.dataSet));
     if (compressedFiles.length > 0) {
         const fileNames = compressedFiles.slice(0, 3).map(f => f.file.name).join(', ');
         const moreCount = compressedFiles.length - 3;
         const moreText = moreCount > 0 ? `...等 ${compressedFiles.length} 個檔案` : '';
         showToast(`⚠️ 偵測到壓縮格式 DICOM：${fileNames}${moreText}。本工具僅支援未壓縮影像，如有黑畫面為正常格式限制。`, 'warning', 8000);
+    }
+
+    if (state.allFiles.length > 0) {
+        const previousSeriesKey = state.activeSeriesKey;
+        if (state.seriesMap.size === 1) {
+            activateSeries(state.seriesMap.keys().next().value, {
+                preserveAnnotations: state.appendMode && initialCount > 0
+            });
+        } else if (previousSeriesKey && state.seriesMap.has(previousSeriesKey)) {
+            activateSeries(previousSeriesKey, { preserveAnnotations: true });
+            openSeriesManager();
+        } else {
+            elements.viewerPanel.classList.add('hidden');
+            elements.dropZone.classList.remove('hidden');
+            renderSeriesManagerList();
+            openSeriesManager();
+        }
+        return;
     }
 
     if (state.files.length > 0) {
@@ -1832,6 +2699,11 @@ function updateRoiList() {
 function deleteLastRoi() {
     if (state.roiCenters.length > 0) {
         state.roiCenters.pop();
+        state.roiPatientAnchors.pop();
+        invalidateCrossSeriesResults('ROI 已刪除');
+        if (state.roiCenters.length === 0) {
+            updateCrossSeriesRoiStatus('放置 ROI 後可在相容 Series 間對齊');
+        }
         updateRoiControls();
         renderImage();
         updateOverlayInfo();
@@ -1842,6 +2714,9 @@ function deleteLastRoi() {
 function clearAllRois() {
     if (state.roiCenters.length > 0 && confirm(`確定要清除全部 ${state.roiCenters.length} 個 ROI 嗎？`)) {
         state.roiCenters = [];
+        state.roiPatientAnchors = [];
+        invalidateCrossSeriesResults('ROI 已清空');
+        updateCrossSeriesRoiStatus('放置 ROI 後可在相容 Series 間對齊');
         updateRoiControls();
         renderImage();
         updateOverlayInfo();
@@ -1913,6 +2788,15 @@ function handleCanvasClick(e) {
 
     // Multi-ROI: Add new ROI to array
     state.roiCenters.push(coords);
+    const patientAnchor = createRoiPatientAnchor(coords, state.currentDS);
+    state.roiPatientAnchors.push(patientAnchor);
+    invalidateCrossSeriesResults('ROI 已新增');
+    updateCrossSeriesRoiStatus(
+        patientAnchor
+            ? 'ROI 已記錄病人座標，可在相容 Series 間對齊'
+            : '此影像缺少完整 DICOM 幾何資訊，ROI 無法跨 Series 對齊',
+        patientAnchor ? 'success' : 'warning'
+    );
 
     updateRoiControls();
     renderImage();
@@ -2232,6 +3116,12 @@ function handleKeyUp(e) {
 // ============================================
 function updateAnalyzeButton() {
     elements.analyzeBtn.disabled = state.roiCenters.length === 0 || state.files.length === 0;
+    if (elements.crossSeriesAnalyzeBtn) {
+        elements.crossSeriesAnalyzeBtn.disabled = state.roiCenters.length === 0 || state.seriesMap.size < 2;
+    }
+    if (elements.crossSeriesExportBtn) {
+        elements.crossSeriesExportBtn.disabled = !state.crossSeriesResults.length;
+    }
     updateSingleAnalyzeButton();
 }
 
@@ -2425,6 +3315,265 @@ async function runAnalysis() {
     state.analysisQueueIndex = 0;
     state.analysisFilterValue = filterValue;
     processNextAnalysisChunk();
+}
+
+/**
+ * Return the identity/geometry fields that must travel with every cross-Series
+ * measurement row.  These are deliberately kept separate from the optional
+ * common-tag selection so a merged CSV can always be traced to its source SOP.
+ */
+function getCrossSeriesResultMetadata(fileObject, series) {
+    const dataSet = fileObject && fileObject.dataSet;
+    return {
+        SeriesDescription: getDicomString(dataSet, 'x0008103e', series?.description || ''),
+        SeriesNumber: getDicomString(dataSet, 'x00200011', series?.seriesNumber || ''),
+        SeriesInstanceUID: getDicomString(dataSet, 'x0020000e', series?.seriesUID || ''),
+        FrameOfReferenceUID: getDicomString(dataSet, 'x00200052', series?.frameOfReferenceUID || ''),
+        SOPInstanceUID: getDicomString(dataSet, 'x00080018', ''),
+        ProtocolName: getDicomString(dataSet, 'x00181030', series?.protocolName || ''),
+        SliceLocation: getDicomExportValue(dataSet, 'x00201041'),
+        SliceThickness: getDicomString(dataSet, 'x00180050', ''),
+        PixelSpacing: getDicomString(dataSet, 'x00280030', series?.pixelSpacing || '')
+    };
+}
+
+function updateCrossSeriesSummary(message, tone = 'info') {
+    if (!elements.crossSeriesSummary) return;
+    elements.crossSeriesSummary.textContent = message;
+    elements.crossSeriesSummary.dataset.tone = tone;
+}
+
+/**
+ * Invalidate merged cross-Series measurements when their ROI inputs change.
+ * A token prevents a late Worker response from repopulating a result set that
+ * has already been invalidated.  Series navigation is intentionally not here:
+ * patient-coordinate ROI transfer keeps that action equivalent.
+ */
+function invalidateCrossSeriesResults(reason = 'ROI 設定已變更') {
+    const hadResults = state.crossSeriesResults.length > 0
+        || state.crossSeriesQueue.length > 0
+        || state.crossSeriesSkipped.length > 0;
+    state.crossSeriesRunToken += 1;
+    state.crossSeriesResults = [];
+    state.crossSeriesQueue = [];
+    state.crossSeriesQueueIndex = 0;
+    state.crossSeriesSkipped = [];
+    state.crossSeriesSourceKey = null;
+    if (elements.crossSeriesExportBtn) elements.crossSeriesExportBtn.disabled = true;
+    if (hadResults) {
+        updateCrossSeriesSummary(`${reason}；請重新執行跨 Series 分析`, 'warning');
+        showToast(`⚠️ ${reason}，請重新執行跨 Series 分析`, 'warning', 5000);
+    }
+}
+
+function ensureCrossSeriesSourceAnchors() {
+    if (!state.roiCenters.length || !state.currentDS) return null;
+    if (state.roiPatientAnchors.length === state.roiCenters.length && state.roiPatientAnchors.every(Boolean)) {
+        return state.roiPatientAnchors;
+    }
+    return state.roiCenters.map(center => createRoiPatientAnchor(center, state.currentDS));
+}
+
+/**
+ * Build one worker task per DICOM image.  `prepareCrossSeriesRoiTransfer` is
+ * the only path that produces target centers: it checks Frame of Reference,
+ * Study and image geometry before any target pixel is analysed.
+ */
+function buildCrossSeriesQueue() {
+    const sourceSeries = state.seriesMap.get(state.activeSeriesKey);
+    if (!sourceSeries || state.seriesMap.size < 2) {
+        return { tasks: [], skipped: ['至少需要兩個 DICOM Series'] };
+    }
+    const sourceAnchors = ensureCrossSeriesSourceAnchors();
+    if (!sourceAnchors || sourceAnchors.some(anchor => !anchor)) {
+        return { tasks: [], skipped: ['來源影像缺少病人座標 ROI anchor 或 DICOM 幾何資訊'] };
+    }
+    const sourceFrame = getDicomString(state.currentDS, 'x00200052', '');
+    if (!sourceFrame) {
+        return { tasks: [], skipped: ['來源影像缺少 FrameOfReferenceUID，為避免像素座標誤用而略過'] };
+    }
+
+    const tasks = [];
+    const skipped = [];
+    for (const series of Array.from(state.seriesMap.values())) {
+        // Keep the source centers as-is; all other Series must be mapped through
+        // patient coordinates by the existing guarded transfer routine.
+        const transfer = series.key === sourceSeries.key
+            ? {
+                success: true,
+                centers: state.roiCenters.map(center => ({ x: center.x, y: center.y })),
+                anchors: sourceAnchors,
+                radius: state.roiRadius,
+                message: '來源 Series 使用已驗證的 ROI anchor'
+            }
+            : prepareCrossSeriesRoiTransfer(series);
+
+        if (!transfer || !transfer.success) {
+            skipped.push(`${getSeriesDisplayName(series)}：${transfer?.message || '無法通過 DICOM 幾何相容性檢查'}`);
+            continue;
+        }
+        const targetFrame = series.files
+            .map(fileObject => getDicomString(fileObject.dataSet, 'x00200052', ''))
+            .find(Boolean);
+        // Do not fall back to pixel coordinates when a Series has no Frame UID.
+        if (!targetFrame || targetFrame !== sourceFrame) {
+            skipped.push(`${getSeriesDisplayName(series)}：FrameOfReferenceUID 缺漏或與來源不一致`);
+            continue;
+        }
+        series.files.forEach(fileObject => {
+            const fileFrame = getDicomString(fileObject.dataSet, 'x00200052', '');
+            if (!fileFrame || fileFrame !== sourceFrame) {
+                skipped.push(`${fileObject.file.name}：FrameOfReferenceUID 缺漏或與來源不一致`);
+                return;
+            }
+            tasks.push({
+                fileObject,
+                series,
+                roiCenters: transfer.centers,
+                roiRadius: transfer.radius,
+                resultMetadata: getCrossSeriesResultMetadata(fileObject, series)
+            });
+        });
+    }
+    return { tasks, skipped };
+}
+
+async function runCrossSeriesAnalysis() {
+    if (!state.roiCenters.length || state.seriesMap.size < 2) {
+        showToast('⚠️ 跨 Series 分析需要至少兩個 Series 與一組 ROI', 'warning');
+        return;
+    }
+    const { tasks, skipped } = buildCrossSeriesQueue();
+    state.crossSeriesRunToken += 1;
+    state.crossSeriesResults = [];
+    state.crossSeriesSkipped = skipped;
+    state.crossSeriesQueue = tasks;
+    state.crossSeriesQueueIndex = 0;
+    state.crossSeriesSourceKey = state.activeSeriesKey;
+    state.lastAnalysisMode = 'cross-series';
+    if (elements.crossSeriesExportBtn) elements.crossSeriesExportBtn.disabled = true;
+    if (elements.crossSeriesAnalyzeBtn) elements.crossSeriesAnalyzeBtn.disabled = true;
+    if (elements.analysisProgress) elements.analysisProgress.classList.remove('hidden');
+    if (elements.progressFill) elements.progressFill.style.width = '0%';
+    if (elements.progressText) elements.progressText.textContent = `0% (0/${tasks.length})`;
+
+    if (!tasks.length) {
+        finishCrossSeriesAnalysis();
+        return;
+    }
+    const compatibleSeriesCount = new Set(tasks.map(task => task.series.key)).size;
+    updateCrossSeriesSummary(`準備分析 ${tasks.length} 張影像（${compatibleSeriesCount} 個相容 Series）...`);
+    if (!state.worker) {
+        await runCrossSeriesMainThread();
+        return;
+    }
+    processNextCrossSeriesTask();
+}
+
+function processNextCrossSeriesTask() {
+    if (!state.crossSeriesQueue.length) return;
+    if (state.crossSeriesQueueIndex >= state.crossSeriesQueue.length) {
+        finishCrossSeriesAnalysis();
+        return;
+    }
+    const task = state.crossSeriesQueue[state.crossSeriesQueueIndex];
+    let copiedBuffer;
+    try {
+        copiedBuffer = task.fileObject.byteArray.buffer.slice(0);
+    } catch (error) {
+        state.worker = null;
+        runCrossSeriesMainThread();
+        return;
+    }
+    state.worker.postMessage({
+        command: 'analyze_cross_series',
+        data: {
+            file: { name: task.fileObject.file.name, buffer: copiedBuffer },
+            roiCenters: task.roiCenters,
+            roiRadius: task.roiRadius,
+            commonTags: COMMON_TAGS,
+            filterValue: null,
+            taskIndex: `${state.crossSeriesRunToken}:${state.crossSeriesQueueIndex}`,
+            seriesKey: task.series.key,
+            resultMetadata: task.resultMetadata
+        }
+    });
+}
+
+async function runCrossSeriesMainThread() {
+    const tasks = state.crossSeriesQueue;
+    const runToken = state.crossSeriesRunToken;
+    for (let index = state.crossSeriesQueueIndex; index < tasks.length; index++) {
+        if (runToken !== state.crossSeriesRunToken) return;
+        const task = tasks[index];
+        try {
+            const dataSet = task.fileObject.dataSet;
+            const pixelData = getPixelDataFromDataSet(dataSet, task.fileObject.byteArray);
+            const rows = dataSet.uint16('x00280010');
+            const cols = dataSet.uint16('x00280011');
+            const dicomTags = {};
+            for (const { tag, name: tagName } of COMMON_TAGS) {
+                dicomTags[tagName] = getDicomExportValue(dataSet, tag);
+            }
+            const values = pixelData;
+            const fullMean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+            const fullSD = values.length
+                ? Math.sqrt(values.reduce((sum, value) => sum + (value - fullMean) ** 2, 0) / values.length)
+                : 0;
+            task.roiCenters.forEach((center, roiIndex) => {
+                const roiStats = calculateROIStats(pixelData, cols, rows, center, task.roiRadius);
+                state.crossSeriesResults.push({
+                    FileName: task.fileObject.file.name,
+                    ROI_ID: roiIndex + 1,
+                    ROI_Mean: roiStats.mean.toFixed(4),
+                    ROI_Noise_SD: roiStats.sd.toFixed(4),
+                    FullImage_Mean: fullMean.toFixed(4),
+                    FullImage_SD: fullSD.toFixed(4),
+                    ROI_X: center.x,
+                    ROI_Y: center.y,
+                    ROI_R: task.roiRadius,
+                    ...roiPhysicalFields(dataSet, task.roiRadius, roiStats.count),
+                    ...dicomTags,
+                    ...task.resultMetadata
+                });
+            });
+        } catch (error) {
+            state.crossSeriesSkipped.push(`${task.fileObject.file.name}：${error.message}`);
+        }
+        state.crossSeriesQueueIndex = index + 1;
+        updateCrossSeriesProgress();
+        if ((index + 1) % 5 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    finishCrossSeriesAnalysis();
+}
+
+function updateCrossSeriesProgress() {
+    const total = state.crossSeriesQueue.length;
+    const completed = state.crossSeriesQueueIndex;
+    const percent = total ? Math.round(completed / total * 100) : 100;
+    if (elements.progressFill) elements.progressFill.style.width = `${percent}%`;
+    if (elements.progressText) elements.progressText.textContent = `${percent}% (${completed}/${total})`;
+    updateCrossSeriesSummary(`跨 Series 分析進度 ${percent}%（${completed}/${total} 張）`);
+}
+
+function finishCrossSeriesAnalysis() {
+    if (elements.analysisProgress) elements.analysisProgress.classList.add('hidden');
+    if (elements.crossSeriesAnalyzeBtn) elements.crossSeriesAnalyzeBtn.disabled = false;
+    if (elements.crossSeriesExportBtn) elements.crossSeriesExportBtn.disabled = !state.crossSeriesResults.length;
+    const seriesUIDs = new Set(state.crossSeriesResults.map(result => result.SeriesInstanceUID).filter(Boolean));
+    const skipText = state.crossSeriesSkipped.length
+        ? `；略過 ${state.crossSeriesSkipped.length} 項：${state.crossSeriesSkipped.join('；')}`
+        : '';
+    updateCrossSeriesSummary(`完成：${state.crossSeriesResults.length} 筆 ROI 結果，涵蓋 ${seriesUIDs.size} 個相容 Series${skipText}`,
+        state.crossSeriesResults.length ? 'success' : 'warning');
+    state.crossSeriesQueue = [];
+    if (state.crossSeriesResults.length) {
+        Object.keys(state.crossSeriesResults[0]).forEach(tag => state.availableTags.add(tag));
+        showToast(`✅ 跨 Series 分析完成：${state.crossSeriesResults.length} 筆結果`, 'success', 5000);
+    } else {
+        showToast('⚠️ 沒有可分析的相容 Series；詳情請查看跨 Series 摘要', 'warning', 6000);
+    }
+    updateAnalyzeButton();
 }
 
 function processNextAnalysisChunk() {
@@ -2621,11 +3770,10 @@ async function runAnalysisMainThread(filterValue) {
             const fullSD = Math.sqrt(fSumSq / pixelData.length - fullMean * fullMean);
 
             // DICOM tags
-            const dicomTags = {};
-            for (const { tag, name: tagName } of COMMON_TAGS) {
-                const val = f.dataSet.string(tag);
-                if (val !== undefined) dicomTags[tagName] = val;
-            }
+        const dicomTags = {};
+        for (const { tag, name: tagName } of COMMON_TAGS) {
+            dicomTags[tagName] = getDicomExportValue(f.dataSet, tag);
+        }
 
             // Multi-ROI
             for (let roiIdx = 0; roiIdx < state.roiCenters.length; roiIdx++) {
@@ -2688,8 +3836,7 @@ async function runSingleMainThread(selectedIndex) {
 
     const dicomTags = {};
     for (const { tag, name: tagName } of COMMON_TAGS) {
-        const val = f.dataSet.string(tag);
-        if (val !== undefined) dicomTags[tagName] = val;
+        dicomTags[tagName] = getDicomExportValue(f.dataSet, tag);
     }
 
     const results = [];
@@ -2718,32 +3865,82 @@ async function runSingleMainThread(selectedIndex) {
 // ============================================
 // Tag Selection & Export
 // ============================================
+function getCurrentModality() {
+    const fileObject = state.files[state.currentIndex] || state.files[0] || state.allFiles[0];
+    return getDicomString(fileObject && fileObject.dataSet, 'x00080060', '').toUpperCase();
+}
+
+function getDefaultExportPresetName() {
+    const modality = getCurrentModality();
+    if (modality === 'CT') return 'ct';
+    if (['CR', 'DX', 'DR', 'MG', 'XA', 'RF'].includes(modality)) return 'xray';
+    return 'research';
+}
+
+function getExportPresetTags(presetName) {
+    const preset = EXPORT_TAG_PRESETS[presetName] || DEFAULT_ROI_EXPORT_TAGS;
+    return preset.filter(tag => state.availableTags.has(tag) && !NON_EXPORTABLE_TAGS.has(tag));
+}
+
+function updateExportPresetUI(presetName) {
+    document.querySelectorAll('[data-export-preset]').forEach(button => {
+        button.classList.toggle('active', button.dataset.exportPreset === presetName);
+    });
+
+    const hint = document.getElementById('tagPresetHint');
+    if (!hint) return;
+    const hints = {
+        ct: 'CT：kVp、mA、ms、mAs、厚度與重建資訊',
+        xray: 'X 光：kVp、mAs、EI／DI 與投照資訊',
+        research: '研究完整：Water phantom 標準欄位',
+        custom: '自訂欄位'
+    };
+    hint.textContent = hints[presetName] || hints.custom;
+}
+
+function applyExportTagPreset(presetName) {
+    const presetTags = getExportPresetTags(presetName);
+    if (state.exportMode === 'cross-series') {
+        presetTags.push(
+            ...REQUIRED_CROSS_SERIES_EXPORT_TAGS.filter(tag => state.availableTags.has(tag))
+        );
+    }
+    state.selectedTags = new Set(presetTags);
+    elements.tagList.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        const tag = checkbox.id.replace('tag-', '');
+        checkbox.checked = state.selectedTags.has(tag);
+    });
+    updateExportPresetUI(presetName);
+}
+
 function openTagModal(mode = 'batch') {
     state.exportMode = mode;
     // Build tag list
     const tagList = elements.tagList;
     tagList.innerHTML = '';
 
-    // Default selected tags
-    if (mode === 'line-batch') {
+    // Select a modality-aware default while retaining manual checkbox control.
+    const defaultPresetName = getDefaultExportPresetName();
+    const presetTags = getExportPresetTags(defaultPresetName);
+    if (mode === 'cross-series') {
+        // These fields make every merged row traceable to its Series/SOP and
+        // are checked by default; users may still add any available tags.
         state.selectedTags = new Set([
-            'PatientName', 'PatientID', 'StudyDate', 'Modality',
-            'ExposureIndex', 'KVP', 'SliceLocation', 'SeriesDescription'
+            ...presetTags,
+            ...REQUIRED_CROSS_SERIES_EXPORT_TAGS.filter(tag => state.availableTags.has(tag))
         ]);
     } else {
-        state.selectedTags = new Set([
-            'PatientName', 'PatientID', 'FileName', 'ROI_ID',
-            'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
-            'ExposureIndex', 'KVP', 'SliceLocation', 'SeriesDescription'
-        ]);
+        state.selectedTags = new Set(presetTags);
     }
 
-    const sortedTags = Array.from(state.availableTags).sort((a, b) => {
+    const sortedTags = Array.from(state.availableTags)
+        .filter(tag => !NON_EXPORTABLE_TAGS.has(tag))
+        .sort((a, b) => {
         // Sort by translation if available, otherwise by tag name
         const aName = TAG_TRANSLATIONS[a] || a;
         const bName = TAG_TRANSLATIONS[b] || b;
         return aName.localeCompare(bName, 'zh-TW');
-    });
+        });
 
     for (const tag of sortedTags) {
         const item = document.createElement('div');
@@ -2759,6 +3956,7 @@ function openTagModal(mode = 'batch') {
             } else {
                 state.selectedTags.delete(tag);
             }
+            updateExportPresetUI('custom');
         });
 
         const label = document.createElement('label');
@@ -2771,6 +3969,7 @@ function openTagModal(mode = 'batch') {
         tagList.appendChild(item);
     }
 
+    updateExportPresetUI(defaultPresetName);
     showModal('tagModal');
 }
 
@@ -2800,19 +3999,28 @@ function toggleAllTags(select) {
             state.selectedTags.delete(tag);
         }
     });
+    updateExportPresetUI('custom');
 }
 
 function exportCSV() {
-    if (state.results.length === 0) return;
+    const isCrossSeriesExport = state.exportMode === 'cross-series';
+    const exportResults = isCrossSeriesExport ? state.crossSeriesResults : state.results;
+    if (!exportResults || exportResults.length === 0) {
+        showToast('⚠️ 沒有可匯出的分析結果', 'warning');
+        return;
+    }
 
-    const selectedTagsArray = Array.from(state.selectedTags);
+    const selectedTagsArray = (isCrossSeriesExport
+        ? Array.from(new Set([...REQUIRED_CROSS_SERIES_EXPORT_TAGS, ...state.selectedTags]))
+        : Array.from(state.selectedTags))
+        .filter(tag => !NON_EXPORTABLE_TAGS.has(tag));
 
     // Build CSV content
     let csv = selectedTagsArray.join(',') + '\n';
 
-    for (const result of state.results) {
+    for (const result of exportResults) {
         const row = selectedTagsArray.map(tag => {
-            const value = result[tag] || '';
+            const value = result[tag] ?? '';
             // Escape quotes and wrap in quotes if contains comma
             if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
                 return `"${value.replace(/"/g, '""')}"`;
@@ -2827,9 +4035,13 @@ function exportCSV() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dicom_roi_analysis_${new Date().toISOString().slice(0, 10)}.csv`;
+    const prefix = isCrossSeriesExport ? 'dicom_roi_cross_series' : 'dicom_roi_analysis';
+    a.download = `${prefix}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
     hideModal('tagModal');
 }
@@ -2841,7 +4053,8 @@ function exportSingleCSV() {
     }
 
     const results = state.singleResults;
-    const selectedTagsArray = Array.from(state.selectedTags);
+    const selectedTagsArray = Array.from(state.selectedTags)
+        .filter(tag => !NON_EXPORTABLE_TAGS.has(tag));
 
     // Build CSV with selected tags
     let csv = selectedTagsArray.join(',') + '\n';
@@ -2849,7 +4062,7 @@ function exportSingleCSV() {
     // Add each ROI result as a row
     for (const result of results) {
         const row = selectedTagsArray.map(field => {
-            const value = result[field] || '';
+            const value = result[field] ?? '';
             // Escape quotes and wrap in quotes if contains comma
             if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
                 return `"${value.replace(/"/g, '""')}"`;
@@ -3861,28 +5074,9 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
     // Use setTimeout to yield execution and keep UI responsive / 使用 setTimeout 讓出執行緒保持 UI 響應
     setTimeout(async () => {
         try {
-            // Sort slices grouped by series into anatomical order (same order as viewer playback):
-            // SeriesInstanceUID -> SliceLocation -> InstanceNumber -> numeric filename.
-            // 批次匯出與 viewer 播放用同一排序：先按 Series 分組、組內按物理位置/編號，
-            // 避免多系列載入時不同協議的同位置切片交錯混排。
-            const sortedFiles = [...state.files].sort((a, b) => {
-                const seriesA = a.dataSet.string('x0020000e') || '';
-                const seriesB = b.dataSet.string('x0020000e') || '';
-                if (seriesA !== seriesB) {
-                    return seriesA.localeCompare(seriesB);
-                }
-                const locA = parseFloat(a.dataSet.string('x00201041'));
-                const locB = parseFloat(b.dataSet.string('x00201041'));
-                if (!isNaN(locA) && !isNaN(locB) && locA !== locB) {
-                    return locA - locB;
-                }
-                const instA = parseInt(a.dataSet.string('x00200013'), 10);
-                const instB = parseInt(b.dataSet.string('x00200013'), 10);
-                if (!isNaN(instA) && !isNaN(instB) && instA !== instB) {
-                    return instA - instB;
-                }
-                return a.file.name.localeCompare(b.file.name, undefined, { numeric: true, sensitivity: 'base' });
-            });
+            // state.files contains only the active Series; reuse the same
+            // patient-position-aware ordering as the viewer.
+            const sortedFiles = [...state.files].sort(compareDicomSlices);
 
             const allRowsData = [];
             const rowSpacing = state.pixelSpacing ? state.pixelSpacing[0] : null;
@@ -4000,16 +5194,18 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
             });
             csvContent += headers.join(',') + '\r\n';
 
-            // Optional metadata rows for user-selected DICOM tags / 依使用者勾選附加 DICOM tag 資訊列
-            if (Array.isArray(selectedDicomTags) && selectedDicomTags.length > 0) {
-                selectedDicomTags.forEach(tagName => {
+    // Optional metadata rows for user-selected DICOM tags / 依使用者勾選附加 DICOM tag 資訊列
+    const exportableDicomTags = Array.isArray(selectedDicomTags)
+        ? selectedDicomTags.filter(tagName => !NON_EXPORTABLE_TAGS.has(tagName))
+        : [];
+    if (exportableDicomTags.length > 0) {
+        exportableDicomTags.forEach(tagName => {
                     const tagValues = sortedFiles.map(f => {
-                        let value = '';
-                        const found = COMMON_TAGS.find(t => t.name === tagName);
-                        if (found) {
-                            const raw = f.dataSet.string(found.tag);
-                            value = raw !== undefined && raw !== null ? String(raw) : '';
-                        }
+                let value = '';
+                const found = COMMON_TAGS.find(t => t.name === tagName);
+                if (found) {
+                    value = getDicomExportValue(f.dataSet, found.tag);
+                }
                         if (value.includes(',') || value.includes('"')) {
                             return `"${value.replace(/\"/g, '""')}"`;
                         }

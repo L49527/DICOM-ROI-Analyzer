@@ -106,6 +106,16 @@
                             <button id="sidebarSelectFilesBtn" class="btn btn-secondary btn-sm btn-block" style="flex: 1; margin: 0; padding: 8px;"><i class="fa-solid fa-file-medical"></i> 複數檔案</button>
                         </div>
                     </div>
+
+                    <!-- Active DICOM Series -->
+                    <div id="activeSeriesCard" class="control-card hidden">
+                        <h3>🗂️ 目前 Series</h3>
+                        <div id="activeSeriesSummary" class="active-series-summary"></div>
+                        <button id="openSeriesManagerBtn" class="btn btn-secondary btn-sm btn-block">
+                            切換／管理 Series
+                        </button>
+                    </div>
+
                     <!-- ROI Settings -->
                     <div class="control-card">
                         <h3>🔧 互動工具 (Tools)</h3>
@@ -135,6 +145,13 @@
                                 <span>mm²</span>
                             </div>
                             <div class="hint" style="margin-top: 4px;">輸入任意面積後自動換算半徑（需 Pixel Spacing）</div>
+                        </div>
+                        <div class="control-group checkbox-group" style="margin-bottom: 4px;">
+                            <input type="checkbox" id="crossSeriesRoiToggle" class="checkbox-lg" checked>
+                            <label for="crossSeriesRoiToggle" class="checkbox-label">跨 Series 固定 ROI（病人座標）</label>
+                        </div>
+                        <div id="crossSeriesRoiStatus" class="hint" style="margin-top: 4px;">
+                            切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊
                         </div>
                         </div>
                         <div class="control-group">
@@ -349,12 +366,22 @@
                         <button id="analyzeBtn" class="btn btn-primary btn-block" disabled>
                             ⚡ 分析全部影像
                         </button>
+                        <button id="crossSeriesAnalyzeBtn" class="btn btn-secondary btn-block mt-2" disabled
+                            title="以 DICOM 病人座標 anchors 對齊所有相容 Series">
+                            🔀 跨 Series 分析
+                        </button>
                         <div id="analysisProgress" class="progress-container hidden">
                             <div class="progress-bar">
                                 <div class="progress-fill" id="progressFill"></div>
                             </div>
                             <span id="progressText">0%</span>
                         </div>
+                        <div id="crossSeriesSummary" class="cross-series-summary" data-tone="info">
+                            跨 Series 分析需要至少兩個相容 Series 與一組 ROI
+                        </div>
+                        <button id="crossSeriesExportBtn" class="btn btn-success btn-block mt-2" disabled>
+                            📥 匯出 cross_series CSV
+                        </button>
                         <div class="single-analysis-section"
                             style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
                             <label
@@ -395,6 +422,27 @@
                 </div>
             </div>
         </main>
+
+        <!-- Series Manager Modal -->
+        <div id="seriesManagerModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large series-manager-modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2>🗂️ Series 管理器</h2>
+                        <p class="series-manager-subtitle">選擇一個 DICOM Series 進入檢視與分析</p>
+                    </div>
+                    <button class="modal-close" id="closeSeriesManagerBtn" aria-label="關閉 Series 管理器">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="series-manager-toolbar">
+                        <div id="seriesImportSummary" class="series-import-summary"></div>
+                        <input id="seriesFilterInput" type="search" placeholder="搜尋 Series Description、kVp、層厚…" aria-label="搜尋 Series">
+                    </div>
+                    <div id="seriesList" class="series-list"></div>
+                </div>
+            </div>
+        </div>
 
         <!-- Help Modal -->
         <div id="helpModal" class="modal hidden">
@@ -474,10 +522,17 @@
                     <h2>✅ 選擇輸出標籤</h2>
                     <button class="modal-close" id="closeTagBtn">✕</button>
                 </div>
-                <div class="modal-body">
-                    <div class="tag-actions">
-                        <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
-                        <button id="deselectAllTags" class="btn btn-sm btn-secondary">全不選</button>
+            <div class="modal-body">
+                <div class="tag-preset-actions" aria-label="CSV 欄位預設">
+                    <span class="tag-preset-label">CSV 欄位預設</span>
+                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="ct">CT</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="xray">X 光</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="research">研究完整</button>
+                    <span id="tagPresetHint" class="tag-preset-hint"></span>
+                </div>
+                <div class="tag-actions">
+                    <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
+                    <button id="deselectAllTags" class="btn btn-sm btn-secondary">全不選</button>
                     </div>
                     <div id="tagList" class="tag-list"></div>
                 </div>

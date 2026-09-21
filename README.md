@@ -1,5 +1,12 @@
 # DICOM ROI Analyzer 修改紀錄 (Change Log)
 
+## 2026-09-21: 更新 CSV 匯出欄位與影像類型預設 (Updated CSV Export Presets)
+
+### 變更項目 (Changes):
+- ROI、跨 Series 與批次線段 CSV 不再輸出 `SeriesInstanceUID`、`FrameOfReferenceUID`、`SOPInstanceUID`、`ProtocolName`；這些欄位仍保留供內部分組與一致性檢查。
+- 依 DICOM `Modality` 自動區分 CT 與 X-ray CSV 預設欄位：CT 著重 kVp、管電流、曝光時間、切片厚度、`SliceLocation`、Pixel Spacing 與重建資訊；X-ray 著重 kVp、曝光量、EI／DI 與投照資訊。
+- CT 與跨 Series CSV 固定包含 `SliceLocation`。若 DICOM 缺少 `(0020,1041) Slice Location`，則使用 `ImagePositionPatient` 與 `ImageOrientationPatient` 推算切片位置。
+
 ## 2026-05-21 (v5): 新增一鍵「批次匯出線段剖面」功能 (Added Single-Click "Batch Export Line Profile" Feature)
 
 ### 變更項目 (Changes):

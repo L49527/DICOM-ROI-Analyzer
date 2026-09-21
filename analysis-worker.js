@@ -27,6 +27,59 @@ try {
     throw importErr;
 }
 
+// Read values for CSV output. Rows and Columns use the DICOM US value
+// representation and must be read as uint16 rather than as strings.
+// CSV 匯出值：Rows / Columns 為 US 數值型標籤，需以 uint16 讀取。
+function getDicomSliceLocationValue(dataSet) {
+    const storedLocation = (dataSet.string('x00201041') || '').trim();
+    if (storedLocation) return storedLocation;
+
+    // Some CT scanners omit (0020,1041) but provide Image Position/Orientation.
+    const position = (dataSet.string('x00200032') || '').split('\\').map(Number);
+    const orientation = (dataSet.string('x00200037') || '').split('\\').map(Number);
+    if (
+        position.length >= 3 &&
+        orientation.length >= 6 &&
+        position.slice(0, 3).every(Number.isFinite) &&
+        orientation.slice(0, 6).every(Number.isFinite)
+    ) {
+        const row = orientation.slice(0, 3);
+        const column = orientation.slice(3, 6);
+        const normal = [
+            row[1] * column[2] - row[2] * column[1],
+            row[2] * column[0] - row[0] * column[2],
+            row[0] * column[1] - row[1] * column[0]
+        ];
+        const coordinate = position[0] * normal[0]
+            + position[1] * normal[1]
+            + position[2] * normal[2];
+        if (Number.isFinite(coordinate)) return String(coordinate);
+    }
+
+    const zPosition = Number(position[2]);
+    return Number.isFinite(zPosition) ? String(zPosition) : '';
+}
+
+function getDicomExportValue(dataSet, tag) {
+    try {
+        if (tag.startsWith('x0053104')
+            && (dataSet.string('x00530010') || '').trim() !== 'GEHC_CT_ADVAPP_001') {
+            return '';
+        }
+        if (tag === 'x00201041') {
+            return getDicomSliceLocationValue(dataSet);
+        }
+        if (tag === 'x00280010' || tag === 'x00280011') {
+            const value = dataSet.uint16(tag);
+            return Number.isFinite(value) ? value : '';
+        }
+        const value = dataSet.string(tag);
+        return value === undefined || value === null ? '' : String(value).trim();
+    } catch (error) {
+        return '';
+    }
+}
+
 self.onmessage = function(e) {
     // Guard: if parser didn't load, report and stop
     // 防禦：若解析器未載入，回報並停止
@@ -92,10 +145,9 @@ self.onmessage = function(e) {
 
                 // 5. Extract Common Tags
                 const dicomTags = {};
-                for (const { tag, name: tagName } of commonTags) {
-                    const val = dataSet.string(tag);
-                    if (val !== undefined) dicomTags[tagName] = val;
-                }
+        for (const { tag, name: tagName } of commonTags) {
+            dicomTags[tagName] = getDicomExportValue(dataSet, tag);
+        }
 
                 // 6. Multi-ROI Analysis (On-the-fly rescaling)
                 for (let roiIdx = 0; roiIdx < roiCenters.length; roiIdx++) {
@@ -113,7 +165,8 @@ self.onmessage = function(e) {
                         ROI_Y: center.y,
                         ROI_R: roiRadius,
                         ...roiPhysicalFields(dataSet, roiRadius, roiStats.count),
-                        ...dicomTags
+                ...dicomTags,
+                ...(data.resultMetadata || {})
                     });
                 }
 
@@ -136,10 +189,12 @@ self.onmessage = function(e) {
         // Final completion message
         self.postMessage({ type: 'complete' });
 
-    } else if (command === 'analyze_chunk' || command === 'analyze_single') {
+    } else if (command === 'analyze_chunk' || command === 'analyze_single' || command === 'analyze_cross_series') {
         const { file, roiCenters, roiRadius, commonTags, filterValue } = data;
         const chunkIndex = command === 'analyze_chunk' ? data.chunkIndex : 0;
-        const completeType = command === 'analyze_chunk' ? 'chunk_complete' : 'single_complete';
+        const completeType = command === 'analyze_chunk'
+            ? 'chunk_complete'
+            : command === 'analyze_cross_series' ? 'cross_series_complete' : 'single_complete';
         const fileResults = [];
 
         try {
@@ -181,10 +236,9 @@ self.onmessage = function(e) {
 
             // 5. Extract Common Tags
             const dicomTags = {};
-            for (const { tag, name: tagName } of commonTags) {
-                const val = dataSet.string(tag);
-                if (val !== undefined) dicomTags[tagName] = val;
-            }
+        for (const { tag, name: tagName } of commonTags) {
+            dicomTags[tagName] = getDicomExportValue(dataSet, tag);
+        }
 
             // 6. Multi-ROI Analysis
             for (let roiIdx = 0; roiIdx < roiCenters.length; roiIdx++) {
@@ -200,17 +254,32 @@ self.onmessage = function(e) {
                     FullImage_SD: fullSD.toFixed(4),
                     ROI_X: center.x,
                     ROI_Y: center.y,
-                    ROI_R: roiRadius,
-                    ...roiPhysicalFields(dataSet, roiRadius, roiStats.count),
-                    ...dicomTags
+            ROI_R: roiRadius,
+            ...roiPhysicalFields(dataSet, roiRadius, roiStats.count),
+            ...dicomTags,
+            ...(data.resultMetadata || {})
                 });
             }
 
-            self.postMessage({ type: completeType, results: fileResults, chunkIndex, skipped: false });
+        self.postMessage({
+            type: completeType,
+            results: fileResults,
+            chunkIndex,
+            taskIndex: data.taskIndex,
+            seriesKey: data.seriesKey,
+            skipped: false
+        });
 
         } catch (err) {
             self.postMessage({ type: 'error', message: err.message, fileName: file.name });
-            self.postMessage({ type: completeType, results: [], chunkIndex, skipped: true });
+        self.postMessage({
+            type: completeType,
+            results: [],
+            chunkIndex,
+            taskIndex: data.taskIndex,
+            seriesKey: data.seriesKey,
+            skipped: true
+        });
         }
     }
 };

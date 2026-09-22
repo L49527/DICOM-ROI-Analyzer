@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DICOM ROI Analyzer 🔬</title>
+    <title>DICOM ROI Analyzer | 影像 ROI 分析工作站</title>
     <meta name="description" content="DICOM 影像 ROI 分析工具 - 支援批次分析、Window Width/Level 調整、全螢幕檢視">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,7 +18,7 @@
         <!-- Header -->
         <header class="header">
             <div class="logo">
-                <span class="logo-icon">🔬</span>
+                <span class="logo-icon" aria-hidden="true"><i class="fa-solid fa-x-ray"></i></span>
                 <div>
                     <h1>DICOM ROI Analyzer</h1>
                     <span class="logo-subtitle">Medical Imaging Analysis System</span>
@@ -26,11 +26,11 @@
             </div>
             <div class="header-controls">
                 <span class="status-indicator status-ready">System Ready</span>
-                <button id="themeToggleBtn" class="btn btn-ghost" title="切換深/淺色模式">
-                    <span id="themeIcon">🌙</span>
+                <button id="themeToggleBtn" class="btn btn-ghost icon-button" title="切換深/淺色模式" aria-label="切換深/淺色模式">
+                    <i id="themeIcon" class="fa-solid fa-moon" aria-hidden="true"></i>
                 </button>
                 <button id="helpBtn" class="btn btn-ghost" title="使用說明">
-                    <span>📖</span> 說明
+                    <i class="fa-regular fa-circle-question" aria-hidden="true"></i> 說明
                 </button>
             </div>
         </header>
@@ -55,19 +55,106 @@
                             累加載入模式 (Append Mode)
                         </label>
                     </div>
-                    <div class="medical-badge">HIPAA Compliant - 本機處理，資料不上傳</div>
+                    <div class="medical-badge"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 本機處理｜資料不離開此裝置</div>
                 </div>
             </div>
 
-            <!-- Viewer Panel (After Loading) -->
-            <div id="viewerPanel" class="viewer-panel hidden">
-                <!-- Left: Image Viewer -->
-                <div class="image-section">
-                    <div class="image-container" id="imageContainer">
-                        <div class="image-container-inner" id="imageContainerInner">
-                            <canvas id="dicomCanvas"></canvas>
+            <!-- Viewer Panel (After Loading): three-column workstation -->
+ <div id="viewerPanel" class="viewer-panel">
+                <aside class="series-sidebar" aria-label="Series 與切片導覽">
+                    <div class="sidebar-title-row">
+                        <div>
+                            <span class="eyebrow">WORKLIST</span>
+                            <h2><i class="fa-solid fa-list-ul" aria-hidden="true"></i> 影像導覽</h2>
                         </div>
-                        <div id="crosshairOverlay" class="crosshair-overlay hidden"></div>
+                        <span id="seriesNavCount" class="sidebar-count">0 Series</span>
+                    </div>
+
+                    <section class="sidebar-section sidebar-load-section" aria-labelledby="sidebarLoadHeading">
+                        <div class="sidebar-section-heading" id="sidebarLoadHeading">
+                            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+                            <span>載入資料</span>
+                        </div>
+                        <div class="append-mode-container">
+                            <input type="checkbox" id="sidebarAppendModeToggle">
+                            <label for="sidebarAppendModeToggle">累加載入模式</label>
+                        </div>
+                        <div class="sidebar-load-actions">
+                            <button id="sidebarSelectFolderBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> 資料夾</button>
+                            <button id="sidebarSelectFilesBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-file-medical" aria-hidden="true"></i> 檔案</button>
+                        </div>
+                    </section>
+
+                    <section id="activeSeriesCard" class="sidebar-section active-series-card hidden" aria-labelledby="activeSeriesHeading">
+                        <div class="sidebar-section-heading" id="activeSeriesHeading">
+                            <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+                            <span>目前 Series</span>
+                        </div>
+                        <div id="activeSeriesSummary" class="active-series-summary"></div>
+                    </section>
+
+                    <section class="sidebar-section series-browser" aria-labelledby="seriesBrowserHeading">
+                        <div class="sidebar-section-heading series-browser-heading" id="seriesBrowserHeading">
+                            <span><i class="fa-solid fa-bars-staggered" aria-hidden="true"></i> Series 清單</span>
+                            <button id="openSeriesManagerBtn" class="btn btn-ghost btn-sm" title="開啟 Series 管理器">管理</button>
+                        </div>
+                        <div id="seriesNavList" class="series-nav-list" role="list" aria-live="polite">
+                            <div id="seriesNavEmpty" class="series-list-empty">載入影像後顯示 Series</div>
+                        </div>
+                    </section>
+
+                </aside>
+
+                <section class="image-section workstation-canvas-column" aria-label="DICOM 影像畫布">
+                    <div class="canvas-toolbar" role="toolbar" aria-label="影像快速工具">
+                        <div class="toolbar-group toolbar-mode-group">
+                            <span class="toolbar-label">量測工具</span>
+                            <div class="tool-mode-switch" role="group" aria-label="選擇量測工具">
+                                <label class="tool-mode-option" title="點擊影像放置 ROI">
+                                    <input type="radio" name="toolMode" value="roi" checked>
+                                    <span><i class="fa-solid fa-bullseye" aria-hidden="true"></i> ROI</span>
+                                </label>
+                                <label class="tool-mode-option" title="拖曳影像繪製線段剖面">
+                                    <input type="radio" name="toolMode" value="line">
+                                    <span><i class="fa-solid fa-ruler" aria-hidden="true"></i> 線段</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="toolbar-group toolbar-presets-group">
+                            <span class="toolbar-label">常用窗位</span>
+                            <div id="ctPresetsContainer" class="preset-buttons toolbar-presets" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));">
+                                <button id="presetLungBtn" class="btn btn-secondary btn-sm" title="Lung (W:1500 L:-600)"><i class="fa-solid fa-lungs" aria-hidden="true"></i><span>肺部</span></button>
+                                <button id="presetBrainBtn" class="btn btn-secondary btn-sm" title="Brain (W:80 L:40)"><i class="fa-solid fa-brain" aria-hidden="true"></i><span>腦部</span></button>
+                                <button id="presetBoneBtn" class="btn btn-secondary btn-sm" title="Bone (W:2000 L:300)"><i class="fa-solid fa-bone" aria-hidden="true"></i><span>骨骼</span></button>
+                                <button id="presetAbdBtn" class="btn btn-secondary btn-sm" title="Abdomen (W:400 L:50)"><i class="fa-solid fa-person" aria-hidden="true"></i><span>腹部</span></button>
+                            </div>
+                        </div>
+                        <div class="toolbar-group toolbar-zoom-group">
+                            <span class="toolbar-label">縮放</span>
+                            <div class="zoom-buttons">
+                                <button id="zoomOutBtn" class="btn btn-secondary btn-sm" title="縮小"><i class="fa-solid fa-minus" aria-hidden="true"></i><span class="sr-only">縮小</span></button>
+                                <button id="zoomResetBtn" class="btn btn-secondary btn-sm" title="重設為 100%">100%</button>
+                                <button id="zoomInBtn" class="btn btn-secondary btn-sm" title="放大"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="sr-only">放大</span></button>
+                            </div>
+                        </div>
+                    </div>
+
+ <div class="image-container" id="imageContainer">
+ <div class="image-container-inner" id="imageContainerInner">
+ <canvas id="dicomCanvas"></canvas>
+ </div>
+ <div id="canvasEmptyState" class="canvas-empty-state" aria-live="polite">
+  <div class="canvas-empty-icon" aria-hidden="true"><i class="fa-solid fa-x-ray"></i></div>
+  <p class="canvas-empty-eyebrow">DICOM WORKSPACE</p>
+  <h2>等待載入 DICOM 影像</h2>
+  <p class="canvas-empty-copy">將資料夾拖曳到此畫布，或選擇檔案開始建立 Series。</p>
+  <div class="canvas-empty-actions">
+   <button type="button" class="btn btn-primary btn-sm" data-upload-action="folder"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> 選擇資料夾</button>
+   <button type="button" class="btn btn-secondary btn-sm" data-upload-action="files"><i class="fa-solid fa-file-medical" aria-hidden="true"></i> 選擇檔案</button>
+  </div>
+  <p class="canvas-empty-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 檔案只在本機處理</p>
+ </div>
+ <div id="crosshairOverlay" class="crosshair-overlay hidden"></div>
                         <div class="image-overlay">
                             <div class="overlay-top-left" id="patientInfo"></div>
                             <div class="overlay-top-right" id="wwwlInfo">WW: -- | WL: --</div>
@@ -75,351 +162,246 @@
                             <div class="overlay-bottom-right" id="roiInfo"></div>
                             <div class="overlay-custom-tags" id="customTagsOverlay"></div>
                         </div>
-                        <!-- Fullscreen Button -->
-                        <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)">⛶</button>
+                        <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)" aria-label="全螢幕"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
                     </div>
 
-                    <!-- Image Navigation -->
-                    <div class="image-nav">
-                        <button id="prevBtn" class="btn btn-icon" title="上一張 (A)">◀</button>
+                    <div class="viewer-statusbar" role="status" aria-live="polite">
+                        <span class="viewer-status-item"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><strong id="viewerSliceStatus">切片 -- / --</strong></span>
+                        <span class="viewer-status-item"><i class="fa-solid fa-ruler-combined" aria-hidden="true"></i><span id="viewerPixelSpacingStatus">Pixel Spacing --</span></span>
+                        <span class="viewer-status-item"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span id="viewerWwlStatus">WW -- · WL --</span></span>
+                        <span class="viewer-status-item"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i><span id="viewerCursorStatus">座標 --</span></span>
+                        <span class="viewer-status-item viewer-status-ready" id="viewerProcessingStatus"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Ready</span></span>
+                    </div>
+
+                    <nav class="image-nav canvas-slice-nav" aria-label="切片導覽">
+                        <button id="prevBtn" class="btn btn-icon" title="上一張 (A)" aria-label="上一張"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
                         <div class="image-slider-container">
-                            <input type="range" id="imageSlider" min="0" max="0" value="0">
+                            <input type="range" id="imageSlider" min="0" max="0" value="0" aria-label="目前切片">
                             <span id="imageCounter">0 / 0</span>
                         </div>
-                        <button id="nextBtn" class="btn btn-icon" title="下一張 (D)">▶</button>
-                    </div>
-                </div>
+                        <button id="nextBtn" class="btn btn-icon" title="下一張 (D)" aria-label="下一張"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+                    </nav>
+                </section>
 
-                <!-- Right: Controls Panel -->
-                <div class="controls-section">
-                    <!-- File Loader -->
-                    <div class="control-card">
-                        <h3>📂 檔案載入 (File Load)</h3>
-                        <div class="append-mode-container" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-                            <input type="checkbox" id="sidebarAppendModeToggle" style="cursor: pointer; width: 16px; height: 16px;">
-                            <label for="sidebarAppendModeToggle" style="cursor: pointer; font-size: 0.85rem; font-weight: 500; color: var(--text-primary); user-select: none;">
-                                累加載入模式 (Append Mode)
-                            </label>
+                <aside class="inspector-panel" aria-label="影像 Inspector">
+                    <div class="inspector-heading">
+                        <div>
+                            <span class="eyebrow">INSPECTOR</span>
+                            <h2><i class="fa-solid fa-sliders" aria-hidden="true"></i> 影像檢查器</h2>
                         </div>
-                        <div style="display: flex; gap: 8px;">
-                            <button id="sidebarSelectFolderBtn" class="btn btn-secondary btn-sm btn-block" style="flex: 1; margin: 0; padding: 8px;"><i class="fa-solid fa-folder-open"></i> 資料夾</button>
-                            <button id="sidebarSelectFilesBtn" class="btn btn-secondary btn-sm btn-block" style="flex: 1; margin: 0; padding: 8px;"><i class="fa-solid fa-file-medical"></i> 複數檔案</button>
-                        </div>
+                        <span id="toolModeStatus" class="mode-status">ROI 模式</span>
+                    </div>
+                    <div class="inspector-tabs" role="tablist" aria-label="影像檢查器分頁">
+                        <button id="inspectorTabView" class="inspector-tab" type="button" role="tab" data-inspector-tab="view" aria-controls="inspector-panel-view" aria-selected="false" tabindex="-1"><i class="fa-solid fa-eye" aria-hidden="true"></i> 檢視</button>
+                        <button id="inspectorTabMeasure" class="inspector-tab is-active" type="button" role="tab" data-inspector-tab="measure" aria-controls="inspector-panel-measure" aria-selected="true" tabindex="0"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> ROI／線段</button>
+                        <button id="inspectorTabAnalysis" class="inspector-tab" type="button" role="tab" data-inspector-tab="analysis" aria-controls="inspector-panel-analysis" aria-selected="false" tabindex="-1"><i class="fa-solid fa-chart-column" aria-hidden="true"></i> 分析</button>
                     </div>
 
-                    <!-- Active DICOM Series -->
-                    <div id="activeSeriesCard" class="control-card hidden">
-                        <h3>🗂️ 目前 Series</h3>
-                        <div id="activeSeriesSummary" class="active-series-summary"></div>
-                        <button id="openSeriesManagerBtn" class="btn btn-secondary btn-sm btn-block">
-                            切換／管理 Series
-                        </button>
-                    </div>
-
-                    <!-- ROI Settings -->
-                    <div class="control-card">
-                        <h3>🔧 互動工具 (Tools)</h3>
-                        <div class="control-group checkbox-group" style="margin-bottom: 12px; gap: 12px;">
-                            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
-                                <input type="radio" name="toolMode" value="roi" checked> 🎯 ROI
-                            </label>
-                            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
-                                <input type="radio" name="toolMode" value="line"> 📏 Line Profile (線段讀值)
-                            </label>
-                        </div>
-                        
-                        <!-- ROI Settings -->
-                        <div id="roiSettingsSection">
-                        <div class="control-group">
-                            <label>ROI 半徑 (像素) / ROI Radius (px)</label>
-                            <div class="input-with-unit">
-                                <input type="number" id="roiRadius" value="25" min="5" max="200">
-                                <span>px</span>
-                            </div>
-                            <div id="roiPhysicalInfo" class="hint" style="margin-top: 4px;"></div>
-                        </div>
-                        <div class="control-group">
-                            <label>ROI 面積設定 / ROI Area (mm²)</label>
-                            <div class="input-with-unit">
-                                <input type="number" id="roiArea" value="" min="1" step="1">
-                                <span>mm²</span>
-                            </div>
-                            <div class="hint" style="margin-top: 4px;">輸入任意面積後自動換算半徑（需 Pixel Spacing）</div>
-                        </div>
-                        <div class="control-group checkbox-group" style="margin-bottom: 4px;">
-                            <input type="checkbox" id="crossSeriesRoiToggle" class="checkbox-lg" checked>
-                            <label for="crossSeriesRoiToggle" class="checkbox-label">跨 Series 固定 ROI（病人座標）</label>
-                        </div>
-                        <div id="crossSeriesRoiStatus" class="hint" style="margin-top: 4px;">
-                            切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊
-                        </div>
-                        </div>
-                        <div class="control-group">
-                            <label>已放置 ROI / Placed ROIs</label>
-                            <div class="roi-count-display">
-                                <span id="roiCount">0</span> 個
-                            </div>
-                        </div>
-                        <div id="roiListContainer" class="roi-list-container"></div>
-                        <div class="roi-buttons">
-                            <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled>⌫ 刪除上一個 <span class="text-xs" style="opacity: 0.7">(Ctrl+Z)</span></button>
-                            <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除全部 <span class="text-xs" style="opacity: 0.7">(Del)</span></button>
-                        </div>
-                <p class="hint">💡 點擊影像新增 ROI，Backspace 刪除</p>
-
-                <!-- Line Settings Section / 線段讀值設定區塊 -->
-                        <div id="lineSettingsSection" class="hidden">
-                            <div class="control-group">
-                                <label>起點 / Start (S)</label>
-                                <div class="position-display" style="font-size: 0.85rem;">
-                                    <span>X: <strong id="lineStartX">--</strong></span>
-                                    <span>Y: <strong id="lineStartY">--</strong></span>
-                                </div>
-                            </div>
-                            <div class="control-group">
-                                <label>終點 / End (E)</label>
-                                <div class="position-display" style="font-size: 0.85rem;">
-                                    <span>X: <strong id="lineEndX">--</strong></span>
-                                    <span>Y: <strong id="lineEndY">--</strong></span>
-                                </div>
-                            </div>
-                            <div class="control-group">
-                                <label>線段長度 / Length</label>
-                                <div id="lineLengthDisplay" style="font-size: 0.85rem; font-weight: 600; padding: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-                                    -- px
-                                </div>
-                            </div>
-                            <!-- Multi-Line Manager / 多線段管理區塊 -->
-                            <div class="control-group" id="multiLineContainer" style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
-                                <label style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">📏 多線段管理 / Multi-Line Manager</label>
-                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                                    <select id="activeLineSelect" style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem; outline: none; cursor: pointer;">
-                                        <option value="">-- 無線段 / No Line --</option>
-                                    </select>
-                                </div>
-                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                                    <select id="duplicateDirectionSelect" style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.85rem; outline: none; cursor: pointer;">
-                                        <option value="left">↖ 左側法向 / Left Normal</option>
-                                        <option value="right">↘ 右側法向 / Right Normal</option>
-                                    </select>
-                                </div>
-                                <div class="control-group" style="margin-bottom: 8px;">
-                                    <label for="duplicateDistanceInput" style="font-size: 0.82rem;">複製距離 / Copy Distance</label>
-                                    <div class="input-with-unit">
-                                        <input type="number" id="duplicateDistanceInput" value="30" min="1" step="1">
-                                        <span>px</span>
+                    <div class="inspector-panels">
+                        <section id="inspector-panel-view" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabView" data-inspector-panel="view" hidden>
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i> 放大倍率</h3>
+                                <div class="control-group">
+                                    <label for="zoomSlider">縮放比例</label>
+                                    <div class="zoom-control">
+                                        <input type="range" id="zoomSlider" min="25" max="400" value="100" step="25">
+                                        <span id="zoomValue">100%</span>
                                     </div>
                                 </div>
-                                <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer; user-select: none;">
-                                    <input id="showAllLinesToggle" type="checkbox" checked style="width: 14px; height: 14px; cursor: pointer;">
-                                    顯示全部線段 / Show all lines
-                                </label>
-                                <div class="roi-buttons" style="display: flex; gap: 6px;">
-                                    <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 4px;" disabled title="平行偏移複製當前選取的線段">↔ 偏移複製</button>
-                                    <button id="cloneLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 4px;" disabled title="原地複製當前選取的線段">📄 複製 / Clone</button>
-                                    <button id="deleteLineBtn" class="btn btn-secondary btn-sm" style="flex: 1; font-size: 0.8rem; padding: 6px 4px;" disabled title="刪除當前選取的線段">❌ 刪除 / Del</button>
+                                <p class="hint">按住 Space + 左鍵拖曳平移影像</p>
+                            </div>
+
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-rotate" aria-hidden="true"></i> 旋轉設定</h3>
+                                <div class="control-group">
+                                    <label for="rotationSlider">旋轉角度</label>
+                                    <div class="rotation-control">
+                                        <input type="range" id="rotationSlider" min="0" max="359" value="0" step="1">
+                                        <span id="rotationValue">0°</span>
+                                    </div>
+                                </div>
+                                <div class="rotation-buttons">
+                                    <button id="rotateMinus45Btn" class="btn btn-secondary btn-sm">-45°</button>
+                                    <button id="rotateMinus1Btn" class="btn btn-secondary btn-sm">-1°</button>
+                                    <button id="rotatePlus1Btn" class="btn btn-secondary btn-sm">+1°</button>
+                                    <button id="rotatePlus45Btn" class="btn btn-secondary btn-sm">+45°</button>
+                                </div>
+                                <div class="rotation-buttons mt-2">
+                                    <button id="rotate90LeftBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> -90°</button>
+                                    <button id="resetRotationBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i> 重設</button>
+                                    <button id="rotate90RightBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> +90°</button>
+                                </div>
+                                <div class="rotation-buttons mt-2">
+                                    <button id="applyRotationAllBtn" class="btn btn-primary btn-block btn-sm"><i class="fa-solid fa-copy" aria-hidden="true"></i> 套用至全部影像</button>
                                 </div>
                             </div>
-                            <div class="control-group">
-                                <label>即時剖面圖 / Real-time Profile</label>
-                                <canvas id="lineProfileCanvas" width="280" height="150" style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; display: block; width: 100%; height: 120px;"></canvas>
-                            </div>
-                            <div class="roi-buttons">
-                                <button id="clearLineBtn" class="btn btn-secondary btn-sm" disabled>🗑️ 清除線段</button>
-                                <button id="openLineDetailBtn" class="btn btn-primary btn-sm" style="flex: 1.2;" disabled>🔍 完整數據</button>
-                            </div>
-                            <div class="roi-buttons mt-1">
-                                <button id="batchExportLineBtn" class="btn btn-secondary btn-sm btn-block" disabled>📂 批次匯出線段剖面</button>
-                            </div>
-                            <p class="hint">💡 左鍵拖曳以繪製量測線段</p>
-                        </div>
-                        
-                    </div>
 
-                    <!-- Zoom Control -->
-                    <div class="control-card">
-                        <h3>🔍 放大倍率</h3>
-                        <div class="control-group">
-                            <label>縮放比例</label>
-                            <div class="zoom-control">
-                                <input type="range" id="zoomSlider" min="25" max="400" value="100" step="25">
-                                <span id="zoomValue">100%</span>
-                            </div>
-                        </div>
-                        <div class="zoom-buttons">
-                            <button id="zoomOutBtn" class="btn btn-secondary btn-sm">➖</button>
-                            <button id="zoomResetBtn" class="btn btn-secondary btn-sm">100%</button>
-                            <button id="zoomInBtn" class="btn btn-secondary btn-sm">➕</button>
-                        </div>
-                        <p class="hint">💡 放大後按住 Space + 左鍵拖曳平移影像</p>
-                    </div>
-
-                    <!-- Rotation Settings -->
-                    <div class="control-card">
-                        <h3>🔄 旋轉設定</h3>
-                        <div class="control-group">
-                            <label>旋轉角度</label>
-                            <div class="rotation-control">
-                                <input type="range" id="rotationSlider" min="0" max="359" value="0" step="1">
-                                <span id="rotationValue">0°</span>
-                            </div>
-                        </div>
-                        <div class="rotation-buttons">
-                            <button id="rotateMinus45Btn" class="btn btn-secondary btn-sm">-45°</button>
-                            <button id="rotateMinus1Btn" class="btn btn-secondary btn-sm">-1°</button>
-                            <button id="rotatePlus1Btn" class="btn btn-secondary btn-sm">+1°</button>
-                            <button id="rotatePlus45Btn" class="btn btn-secondary btn-sm">+45°</button>
-                        </div>
-                        <div class="rotation-buttons mt-2">
-                            <button id="rotate90LeftBtn" class="btn btn-secondary btn-sm">↺ -90°</button>
-                            <button id="resetRotationBtn" class="btn btn-secondary btn-sm">🔄 重設</button>
-                            <button id="rotate90RightBtn" class="btn btn-secondary btn-sm">↻ +90°</button>
-                        </div>
-                        <div class="rotation-buttons mt-2">
-                            <button id="applyRotationAllBtn" class="btn btn-primary btn-block btn-sm">📋
-                                套用至全部影像</button>
-                        </div>
-                        <p class="hint">💡 按 Q/E 旋轉 ±90°，拖曳滑桿自由調整角度</p>
-                    </div>
-
-                    <!-- Window/Level Settings -->
-                    <div class="control-card">
-                        <h3>🎚️ Window/Level</h3>
-                        <div class="control-group">
-                            <label>Window Width</label>
-                            <input type="number" id="windowWidth" value="400">
-                        </div>
-                        <div class="control-group">
-                            <label>Window Level</label>
-                            <input type="number" id="windowLevel" value="40">
-                        </div>
-                        <!-- CT Presets -->
-                        <div id="ctPresetsContainer" class="preset-buttons"
-                            style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px;">
-                            <button id="presetLungBtn" class="btn btn-secondary btn-sm" title="Lung (W:1500 L:-600)">🫁
-                                肺部</button>
-                            <button id="presetBrainBtn" class="btn btn-secondary btn-sm" title="Brain (W:80 L:40)">🧠
-                                腦部</button>
-                            <button id="presetBoneBtn" class="btn btn-secondary btn-sm" title="Bone (W:2000 L:300)">🦴
-                                骨骼</button>
-                            <button id="presetAbdBtn" class="btn btn-secondary btn-sm" title="Abdomen (W:400 L:50)">🔄
-                                腹部</button>
-                        </div>
-                        <div class="wwwl-buttons">
-                            <button id="resetWWWLBtn" class="btn btn-secondary btn-sm">🔄 重設 (R)</button>
-                            <button id="applyWWWLAllBtn" class="btn btn-primary btn-sm">📋 套用至全部</button>
-                        </div>
-                        <p class="hint">💡 右鍵拖曳調整 WW/WL</p>
-                    </div>
-                    <!-- Grid Settings -->
-                    <div class="control-card">
-                        <h3>📏 格線設定</h3>
-                        <div class="control-group checkbox-group">
-                            <input type="checkbox" id="gridToggle" class="checkbox-lg">
-                            <label for="gridToggle" class="checkbox-label">顯示品管格線 (Grid Overlay)</label>
-                        </div>
-                        <div class="control-group checkbox-group" style="margin-top: -8px; margin-bottom: 12px; padding-left: 28px;">
-                            <input type="checkbox" id="lockCenter">
-                            <label for="lockCenter" class="checkbox-label" style="font-size: 0.8rem; opacity: 0.9;">固定目前中心 (Lock Current Position)</label>
-                        </div>
-                        <div class="grid-controls-inner hidden" id="gridControlsInner">
-
-                            <div class="control-group">
-                                <label>間距 (像素)</label>
-                                <div class="input-with-unit">
-                                    <input type="number" id="gridSpacing" value="50" min="5" max="500">
-                                    <span>px</span>
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-sliders" aria-hidden="true"></i> Window / Level</h3>
+                                <div class="control-group">
+                                    <label for="windowWidth">Window Width</label>
+                                    <input type="number" id="windowWidth" value="400">
                                 </div>
-                                <div class="preset-buttons mt-2" id="gridSpacingPresets">
-                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=20; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">20px</button>
-                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=50; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">50px</button>
-                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=100; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">100px</button>
-                                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=200; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">200px</button>
+                                <div class="control-group">
+                                    <label for="windowLevel">Window Level</label>
+                                    <input type="number" id="windowLevel" value="40">
+                                </div>
+                                <div class="wwwl-buttons">
+                                    <button id="resetWWWLBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i> 重設</button>
+                                    <button id="applyWWWLAllBtn" class="btn btn-primary btn-sm"><i class="fa-solid fa-copy" aria-hidden="true"></i> 套用至全部</button>
+                                </div>
+                                <p class="hint">右鍵拖曳調整 WW/WL</p>
+                            </div>
+
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-table-cells-large" aria-hidden="true"></i> 格線設定</h3>
+                                <div class="control-group checkbox-group">
+                                    <input type="checkbox" id="gridToggle" class="checkbox-lg">
+                                    <label for="gridToggle" class="checkbox-label">顯示品管格線</label>
+                                </div>
+                                <div class="control-group checkbox-group grid-lock-row">
+                                    <input type="checkbox" id="lockCenter">
+                                    <label for="lockCenter" class="checkbox-label">固定目前中心</label>
+                                </div>
+                                <div class="grid-controls-inner hidden" id="gridControlsInner">
+                                    <div class="control-group">
+                                        <label for="gridSpacing">間距 (像素)</label>
+                                        <div class="input-with-unit">
+                                            <input type="number" id="gridSpacing" value="50" min="5" max="500">
+                                            <span>px</span>
+                                        </div>
+                                        <div class="preset-buttons mt-2" id="gridSpacingPresets">
+                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=20; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">20px</button>
+                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=50; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">50px</button>
+                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=100; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">100px</button>
+                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=200; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">200px</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="hint">協助對齊與測量病灶大小</p>
+                            </div>
+
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> 影像資訊與標籤</h3>
+                                <button id="rawHeaderBtn" class="btn btn-secondary btn-block btn-sm mb-3"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> 檢視完整 DICOM 標頭</button>
+                                <p class="hint mb-3">選擇要在影像上顯示的 DICOM 標籤資訊</p>
+                                <button id="displayTagBtn" class="btn btn-primary btn-block btn-sm"><i class="fa-solid fa-tags" aria-hidden="true"></i> 設定顯示標籤</button>
+                                <div id="displayTagPreview" class="display-tag-preview"></div>
+                            </div>
+                        </section>
+
+                        <section id="inspector-panel-measure" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabMeasure" data-inspector-panel="measure">
+                            <div class="control-card measurement-card">
+                                <h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> ROI／線段工具</h3>
+                                <div class="tool-mode-summary"><span>目前模式</span><strong id="toolModeSummary">ROI</strong></div>
+
+                                <div id="roiSettingsSection">
+                                    <div class="control-group">
+                                        <label for="roiRadius">ROI 半徑 (像素)</label>
+                                        <div class="input-with-unit">
+                                            <input type="number" id="roiRadius" value="25" min="5" max="200">
+                                            <span>px</span>
+                                        </div>
+                                        <div id="roiPhysicalInfo" class="hint"></div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label for="roiArea">ROI 面積設定</label>
+                                        <div class="input-with-unit">
+                                            <input type="number" id="roiArea" value="" min="1" step="1">
+                                            <span>mm²</span>
+                                        </div>
+                                        <div class="hint">輸入面積後自動換算半徑（需 Pixel Spacing）</div>
+                                    </div>
+                                    <div class="control-group checkbox-group">
+                                        <input type="checkbox" id="crossSeriesRoiToggle" class="checkbox-lg" checked>
+                                        <label for="crossSeriesRoiToggle" class="checkbox-label">跨 Series 固定 ROI（病人座標）</label>
+                                    </div>
+                                    <div id="crossSeriesRoiStatus" class="hint">切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊</div>
+                                    <div class="control-group">
+                                        <label>已放置 ROI</label>
+                                        <div class="roi-count-display"><span id="roiCount">0</span> 個</div>
+                                    </div>
+                                    <div id="roiListContainer" class="roi-list-container"></div>
+                                    <div class="roi-buttons">
+                                        <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> 刪除上一個 <span class="text-xs">(Ctrl+Z)</span></button>
+                                        <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除全部 <span class="text-xs">(Del)</span></button>
+                                    </div>
+                                    <p class="hint">點擊影像新增 ROI，Backspace 刪除</p>
+                                </div>
+
+                                <div id="lineSettingsSection" class="hidden">
+                                    <div class="control-group">
+                                        <label>起點 / Start (S)</label>
+                                        <div class="position-display"><span>X: <strong id="lineStartX">--</strong></span><span>Y: <strong id="lineStartY">--</strong></span></div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label>終點 / End (E)</label>
+                                        <div class="position-display"><span>X: <strong id="lineEndX">--</strong></span><span>Y: <strong id="lineEndY">--</strong></span></div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label>線段長度 / Length</label>
+                                        <div id="lineLengthDisplay" class="measurement-value">-- px</div>
+                                    </div>
+                                    <div class="control-group" id="multiLineContainer">
+                                        <label class="subsection-label"><i class="fa-solid fa-route" aria-hidden="true"></i> 多線段管理</label>
+                                        <select id="activeLineSelect"><option value="">-- 無線段 / No Line --</option></select>
+                                        <select id="duplicateDirectionSelect"><option value="left">左側法向 / Left Normal</option><option value="right">右側法向 / Right Normal</option></select>
+                                        <label for="duplicateDistanceInput" class="compact-label">複製距離 / Copy Distance</label>
+                                        <div class="input-with-unit"><input type="number" id="duplicateDistanceInput" value="30" min="1" step="1"><span>px</span></div>
+                                        <label class="checkbox-label line-display-toggle"><input id="showAllLinesToggle" type="checkbox" checked> 顯示全部線段</label>
+                                        <div class="roi-buttons line-actions">
+                                            <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" disabled title="平行偏移複製當前選取的線段"><i class="fa-solid fa-arrows-left-right" aria-hidden="true"></i> 偏移</button>
+                                            <button id="cloneLineBtn" class="btn btn-secondary btn-sm" disabled title="原地複製當前選取的線段"><i class="fa-regular fa-copy" aria-hidden="true"></i> 複製</button>
+                                            <button id="deleteLineBtn" class="btn btn-secondary btn-sm" disabled title="刪除當前選取的線段"><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 刪除</button>
+                                        </div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label>即時剖面圖 / Real-time Profile</label>
+                                        <canvas id="lineProfileCanvas" width="280" height="150"></canvas>
+                                    </div>
+                                    <div class="roi-buttons">
+                                        <button id="clearLineBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除線段</button>
+                                        <button id="openLineDetailBtn" class="btn btn-primary btn-sm" disabled><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 完整數據</button>
+                                    </div>
+                                    <div class="roi-buttons mt-1"><button id="batchExportLineBtn" class="btn btn-secondary btn-sm btn-block" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 批次匯出線段剖面</button></div>
+                                    <p class="hint">左鍵拖曳以繪製量測線段</p>
                                 </div>
                             </div>
-                        </div>
-                        <p class="hint">💡 協助對齊與測量病灶大小</p>
-                    </div>
+                        </section>
 
-                    <!-- Display Tags & Raw DICOM -->
-                    <div class="control-card">
-                        <h3>📋 影像資訊與標籤</h3>
-                        <button id="rawHeaderBtn" class="btn btn-secondary btn-block btn-sm mb-3">
-                            🔍 檢視完整 DICOM 標頭 (Raw Data)
-                        </button>
-                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 12px 0;">
-                        <p class="hint mb-3">選擇要在影像上顯示的 DICOM 標籤資訊</p>
-                        <button id="displayTagBtn" class="btn btn-primary btn-block btn-sm">
-                            ⚙️ 設定顯示標籤
-                        </button>
-                        <div id="displayTagPreview" class="display-tag-preview"></div>
-                    </div>
-
-                    <!-- Analysis Controls -->
-                    <div class="control-card">
-                        <h3>📊 分析</h3>
-                        <div class="control-group mb-3">
-                            <label>指定 Slice Location (選填)</label>
-                            <input type="text" id="sliceLocationFilter" placeholder="例如: -50 或 100.5">
-                            <p class="hint mt-1 text-xs">若填寫，僅分析符合此位置的影像 (如 S0)</p>
-                        </div>
-                        <button id="analyzeBtn" class="btn btn-primary btn-block" disabled>
-                            ⚡ 分析全部影像
-                        </button>
-                        <button id="crossSeriesAnalyzeBtn" class="btn btn-secondary btn-block mt-2" disabled
-                            title="以 DICOM 病人座標 anchors 對齊所有相容 Series">
-                            🔀 跨 Series 分析
-                        </button>
-                        <div id="analysisProgress" class="progress-container hidden">
-                            <div class="progress-bar">
-                                <div class="progress-fill" id="progressFill"></div>
-                            </div>
-                            <span id="progressText">0%</span>
-                        </div>
-                        <div id="crossSeriesSummary" class="cross-series-summary" data-tone="info">
-                            跨 Series 分析需要至少兩個相容 Series 與一組 ROI
-                        </div>
-                        <button id="crossSeriesExportBtn" class="btn btn-success btn-block mt-2" disabled>
-                            📥 匯出 cross_series CSV
-                        </button>
-                        <div class="single-analysis-section"
-                            style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
-                            <label
-                                style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">🎯
-                                單張影像分析</label>
-                            <div class="single-analysis-controls">
-                                <select id="singleImageSelect" class="single-image-select"
-                                    style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem;">
-                                    <option value="">-- 選擇影像 --</option>
-                                </select>
-                                <button id="analyzeSingleBtn" class="btn btn-secondary" disabled title="分析選定的單張影像">
-                                    📷 分析
-                                </button>
-                            </div>
-                            <div id="singleResultActions" class="single-result-actions hidden"
-                                style="margin-top: 10px; padding: 10px; background: rgba(0, 200, 100, 0.1); border-radius: 8px; border: 1px solid rgba(0, 200, 100, 0.3);">
-                                <div
-                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                    <span id="singleResultInfo"
-                                        style="font-size: 0.85rem; color: var(--text-secondary);">✅ 分析完成</span>
-                                    <button id="exportSingleBtn" class="btn btn-success btn-sm" title="匯出單張分析結果">
-                                        📥 匯出 CSV
-                                    </button>
+                        <section id="inspector-panel-analysis" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabAnalysis" data-inspector-panel="analysis" hidden>
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-chart-column" aria-hidden="true"></i> 分析</h3>
+                                <div class="control-group">
+                                    <label for="sliceLocationFilter">指定 Slice Location (選填)</label>
+                                    <input type="text" id="sliceLocationFilter" placeholder="例如: -50 或 100.5">
+                                    <p class="hint">若填寫，僅分析符合此位置的影像</p>
                                 </div>
-                                <div id="singleResultTable" class="single-result-table"></div>
+                                <button id="analyzeBtn" class="btn btn-primary btn-block" disabled><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 分析全部影像</button>
+                                <button id="crossSeriesAnalyzeBtn" class="btn btn-secondary btn-block mt-2" disabled title="以 DICOM 病人座標 anchors 對齊所有相容 Series"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> 跨 Series 分析</button>
+                                <div id="analysisProgress" class="progress-container hidden"><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><span id="progressText">0%</span></div>
+                                <div id="crossSeriesSummary" class="cross-series-summary" data-tone="info">跨 Series 分析需要至少兩個相容 Series 與一組 ROI</div>
+                                <button id="crossSeriesExportBtn" class="btn btn-success btn-block mt-2" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出 cross_series CSV</button>
+                                <div class="single-analysis-section">
+                                    <label class="subsection-label"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> 單張影像分析</label>
+                                    <div class="single-analysis-controls">
+                                        <select id="singleImageSelect" class="single-image-select"><option value="">-- 選擇影像 --</option></select>
+                                        <button id="analyzeSingleBtn" class="btn btn-secondary" disabled title="分析選定的單張影像"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 分析</button>
+                                    </div>
+                                    <div id="singleResultActions" class="single-result-actions hidden">
+                                        <div class="single-result-header"><span id="singleResultInfo">分析完成</span><button id="exportSingleBtn" class="btn btn-success btn-sm" title="匯出單張分析結果"><i class="fa-solid fa-file-csv" aria-hidden="true"></i> 匯出 CSV</button></div>
+                                        <div id="singleResultTable" class="single-result-table"></div>
+                                    </div>
+                                    <p class="hint">選擇特定影像進行單獨分析</p>
+                                </div>
                             </div>
-                            <p class="hint mt-2">💡 選擇特定影像進行單獨分析</p>
-                        </div>
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出</h3>
+                                <button id="exportBtn" class="btn btn-success btn-block" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 選擇標籤並匯出</button>
+                            </div>
+                        </section>
                     </div>
-
-                    <!-- Export Controls -->
-                    <div class="control-card">
-                        <h3>📥 匯出</h3>
-                        <button id="exportBtn" class="btn btn-success btn-block" disabled>
-                            📥 選擇標籤並匯出
-                        </button>
-                    </div>
-                </div>
+                </aside>
             </div>
         </main>
 
@@ -429,7 +411,7 @@
             <div class="modal-content modal-large series-manager-modal-content">
                 <div class="modal-header">
                     <div>
-                        <h2>🗂️ Series 管理器</h2>
+                        <h2><i class="fa-solid fa-layer-group" aria-hidden="true"></i> Series 管理器</h2>
                         <p class="series-manager-subtitle">選擇一個 DICOM Series 進入檢視與分析</p>
                     </div>
                     <button class="modal-close" id="closeSeriesManagerBtn" aria-label="關閉 Series 管理器">✕</button>
@@ -449,11 +431,11 @@
             <div class="modal-backdrop"></div>
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>📖 使用說明</h2>
+                        <h2><i class="fa-regular fa-circle-question" aria-hidden="true"></i> 使用說明</h2>
                     <button class="modal-close" id="closeHelpBtn">✕</button>
                 </div>
                 <div class="modal-body">
-                    <h3>🖱️ 滑鼠操作</h3>
+                        <h3><i class="fa-solid fa-computer-mouse" aria-hidden="true"></i> 滑鼠操作</h3>
                     <table class="help-table">
                         <tr>
                             <td><strong>左鍵點擊</strong></td>
@@ -473,7 +455,7 @@
                         </tr>
                     </table>
 
-                    <h3>⌨️ 鍵盤快捷鍵</h3>
+                        <h3><i class="fa-solid fa-keyboard" aria-hidden="true"></i> 鍵盤快捷鍵</h3>
                     <table class="help-table">
                         <tr>
                             <td><kbd>A</kbd> / <kbd>←</kbd></td>
@@ -505,7 +487,7 @@
                         </tr>
                     </table>
 
-                    <h3>🎯 中心十字 (Crosshair)</h3>
+                        <h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> 中心十字 <span class="label-secondary">Crosshair</span></h3>
                     <ul>
                         <li><strong>隨影像移動</strong>：十字固定在影像中心，隨縮放與旋轉同步變化。</li>
                         <li><strong>固定在畫面上</strong>：十字固定在視窗中央，影像可在十字後方移動。</li>

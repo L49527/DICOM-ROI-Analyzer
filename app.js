@@ -365,14 +365,26 @@ const elements = {
     seriesImportSummary: null,
     seriesFilterInput: null,
     seriesList: null,
+    seriesNavList: null,
+    seriesNavCount: null,
     crossSeriesRoiToggle: null,
     crossSeriesRoiStatus: null,
 
     // Viewer Panel
-    viewerPanel: null,
-    imageContainer: null,
+ viewerPanel: null,
+ imageContainer: null,
+ canvasEmptyState: null,
     dicomCanvas: null,
     ctx: null,
+    viewerSliceStatus: null,
+    viewerPixelSpacingStatus: null,
+    viewerWwlStatus: null,
+    viewerCursorStatus: null,
+    viewerProcessingStatus: null,
+    inspectorTabs: null,
+    inspectorPanels: null,
+    toolModeStatus: null,
+    toolModeSummary: null,
 
     // Overlays
     patientInfo: null,
@@ -550,9 +562,21 @@ function populateElements() {
     elements.seriesImportSummary = document.getElementById('seriesImportSummary');
     elements.seriesFilterInput = document.getElementById('seriesFilterInput');
     elements.seriesList = document.getElementById('seriesList');
-    elements.viewerPanel = document.getElementById('viewerPanel');
-    elements.imageContainer = document.getElementById('imageContainer');
+    elements.seriesNavList = document.getElementById('seriesNavList');
+    elements.seriesNavCount = document.getElementById('seriesNavCount');
+ elements.viewerPanel = document.getElementById('viewerPanel');
+ elements.imageContainer = document.getElementById('imageContainer');
+ elements.canvasEmptyState = document.getElementById('canvasEmptyState');
     elements.dicomCanvas = document.getElementById('dicomCanvas');
+    elements.viewerSliceStatus = document.getElementById('viewerSliceStatus');
+    elements.viewerPixelSpacingStatus = document.getElementById('viewerPixelSpacingStatus');
+    elements.viewerWwlStatus = document.getElementById('viewerWwlStatus');
+    elements.viewerCursorStatus = document.getElementById('viewerCursorStatus');
+    elements.viewerProcessingStatus = document.getElementById('viewerProcessingStatus');
+    elements.inspectorTabs = document.querySelectorAll('[data-inspector-tab]');
+    elements.inspectorPanels = document.querySelectorAll('[data-inspector-panel]');
+    elements.toolModeStatus = document.getElementById('toolModeStatus');
+    elements.toolModeSummary = document.getElementById('toolModeSummary');
     elements.patientInfo = document.getElementById('patientInfo');
     elements.wwwlInfo = document.getElementById('wwwlInfo');
     elements.fileInfo = document.getElementById('fileInfo');
@@ -696,14 +720,221 @@ function safeAddListener(element, event, handler, options = null) {
 
 function updateSystemStatus(mode) {
     const indicator = document.querySelector('.status-indicator');
-    if (!indicator) return;
-    if (mode === 'compatibility') {
-        indicator.textContent = 'Compatibility Mode';
-        indicator.className = 'status-indicator status-warning';
-    } else {
-        indicator.textContent = 'System Ready';
-        indicator.className = 'status-indicator status-ready';
+    const statuses = {
+        processing: {
+            header: 'Processing',
+            viewer: 'Processing',
+            icon: 'fa-spinner fa-spin',
+            color: '#f0c674',
+            className: 'processing'
+        },
+        error: {
+            header: 'Error',
+            viewer: 'Error',
+            icon: 'fa-circle-exclamation',
+            color: '#f18b8b',
+            className: 'error'
+        },
+        compatibility: {
+            header: 'Compatibility Mode',
+            viewer: 'Compatibility',
+            icon: 'fa-triangle-exclamation',
+            color: '#f0c674',
+            className: 'warning'
+        },
+    ready: {
+        header: 'System Ready',
+        viewer: 'Ready',
+        icon: 'fa-circle-check',
+        color: '#9bdfbd',
+        className: 'ready'
+    },
+    empty: {
+        header: 'System Ready',
+        viewer: '等待載入',
+        icon: 'fa-hourglass-start',
+        color: '#79c5df',
+        className: 'empty'
     }
+};
+    const status = statuses[mode] || statuses.ready;
+
+    if (indicator) {
+        indicator.textContent = status.header;
+        indicator.className = `status-indicator status-${status.className}`;
+    }
+
+    const viewerStatus = elements.viewerProcessingStatus || document.getElementById('viewerProcessingStatus');
+    if (viewerStatus) {
+        viewerStatus.dataset.status = status.className;
+        viewerStatus.className = `viewer-status-item viewer-status-${status.className}`;
+        viewerStatus.style.color = status.color;
+        const icon = viewerStatus.querySelector('i');
+        if (icon) {
+            icon.className = `fa-solid ${status.icon}`;
+            icon.style.color = status.color;
+        }
+        const label = viewerStatus.querySelector('span');
+        if (label) label.textContent = status.viewer;
+    }
+}
+
+// ============================================
+// Workstation UI (layout-only state)
+// ============================================
+function setInspectorTab(tabName, shouldFocus = false) {
+    const tabs = Array.from(elements.inspectorTabs || document.querySelectorAll('[data-inspector-tab]'));
+    const panels = Array.from(elements.inspectorPanels || document.querySelectorAll('[data-inspector-panel]'));
+    const selectedTab = tabs.find(tab => tab.dataset.inspectorTab === tabName) || tabs[0];
+    if (!selectedTab) return;
+
+    const selectedName = selectedTab.dataset.inspectorTab;
+    tabs.forEach(tab => {
+        const isSelected = tab === selectedTab;
+        tab.setAttribute('aria-selected', String(isSelected));
+        tab.tabIndex = isSelected ? 0 : -1;
+        tab.classList.toggle('is-active', isSelected);
+    });
+    panels.forEach(panel => {
+        panel.hidden = panel.dataset.inspectorPanel !== selectedName;
+    });
+    if (shouldFocus) selectedTab.focus();
+}
+
+function updateToolModeUi() {
+    const mode = state.toolMode === 'line' ? '線段模式' : 'ROI 模式';
+    if (elements.toolModeStatus) elements.toolModeStatus.textContent = mode;
+    if (elements.toolModeSummary) elements.toolModeSummary.textContent = mode.replace(' 模式', '');
+}
+
+function updateCanvasEmptyState() {
+    if (!elements.canvasEmptyState) return;
+    const hasFiles = state.files.length > 0;
+    elements.canvasEmptyState.classList.toggle('hidden', hasFiles);
+    elements.canvasEmptyState.setAttribute('aria-hidden', hasFiles ? 'true' : 'false');
+    if (elements.imageContainer) {
+        elements.imageContainer.classList.toggle('has-image', hasFiles);
+    }
+    if (elements.viewerPanel) {
+        elements.viewerPanel.classList.toggle('is-empty', !hasFiles);
+    }
+
+    if (updateCanvasEmptyState.lastHasFiles !== hasFiles) {
+        const dataControls = elements.viewerPanel?.querySelectorAll(
+            '.canvas-toolbar button, .canvas-toolbar input, '
+            + '.inspector-panel-content button, .inspector-panel-content input, '
+            + '.inspector-panel-content select, #prevBtn, #nextBtn, #imageSlider'
+        ) || [];
+        dataControls.forEach(control => {
+            if (control.dataset.emptyDisabledInitial === undefined) {
+                control.dataset.emptyDisabledInitial = String(control.disabled);
+            }
+            control.disabled = !hasFiles || control.dataset.emptyDisabledInitial === 'true';
+            control.setAttribute('aria-disabled', String(control.disabled));
+        });
+        updateCanvasEmptyState.lastHasFiles = hasFiles;
+    }
+}
+
+function updateWorkstationStatus() {
+    const total = state.files.length;
+    updateCanvasEmptyState();
+    if (elements.viewerSliceStatus) {
+        elements.viewerSliceStatus.textContent = `切片 ${total ? state.currentIndex + 1 : '--'} / ${total || '--'}`;
+    }
+    if (elements.viewerPixelSpacingStatus) {
+        const spacing = Array.isArray(state.pixelSpacing) && state.pixelSpacing.length === 2
+            ? state.pixelSpacing.map(value => Number.isFinite(Number(value)) ? Number(value).toFixed(3) : '--').join(' × ')
+            : '--';
+        elements.viewerPixelSpacingStatus.textContent = `Pixel Spacing ${spacing}${spacing === '--' ? '' : ' mm'}`;
+    }
+    if (elements.viewerWwlStatus) {
+        const ww = Number.isFinite(Number(state.windowWidth)) ? Math.round(state.windowWidth) : '--';
+        const wl = Number.isFinite(Number(state.windowLevel)) ? Math.round(state.windowLevel) : '--';
+        elements.viewerWwlStatus.textContent = `WW ${ww} · WL ${wl}`;
+    }
+    if (elements.viewerProcessingStatus) {
+        if (!total) {
+            updateSystemStatus('empty');
+        } else if (!elements.viewerProcessingStatus.dataset.status || elements.viewerProcessingStatus.dataset.status === 'empty') {
+            updateSystemStatus('ready');
+        }
+    }
+}
+
+function updateWorkstationCursor(e) {
+    if (!elements.viewerCursorStatus || !state.pixelData || !state.currentDS) return;
+    const coords = getCanvasCoordinates(e);
+    if (coords) elements.viewerCursorStatus.textContent = `座標 ${coords.x}, ${coords.y}`;
+}
+
+function renderWorkstationSeriesNav() {
+    const nav = elements.seriesNavList;
+    if (!nav) return;
+    const seriesValues = Array.from(state.seriesMap.values()).sort((a, b) => {
+        const aNumber = Number(a.seriesNumber);
+        const bNumber = Number(b.seriesNumber);
+        if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber;
+        return getSeriesDisplayName(a).localeCompare(getSeriesDisplayName(b));
+    });
+    if (elements.seriesNavCount) elements.seriesNavCount.textContent = `${seriesValues.length} Series`;
+    if (seriesValues.length === 0) {
+        nav.innerHTML = '<div id="seriesNavEmpty" class="series-list-empty">載入影像後顯示 Series</div>';
+        return;
+    }
+    nav.innerHTML = seriesValues.map(series => {
+        const isActive = series.key === state.activeSeriesKey;
+        const metadata = [
+            series.seriesNumber ? `#${series.seriesNumber}` : '',
+            series.modality || '',
+            `${series.files.length} 張`,
+            series.rows && series.columns ? `${series.rows}×${series.columns}` : ''
+        ].filter(Boolean);
+        const warningLabel = series.warnings && series.warnings.length ? '需注意' : '可分析';
+        return `<button type="button" class="series-nav-item${isActive ? ' is-active' : ''}" data-workstation-series-key="${encodeURIComponent(series.key)}" aria-pressed="${isActive}" title="${escapeSeriesHtml(getSeriesDisplayName(series))}">
+            <span class="series-nav-item-title"><span>${escapeSeriesHtml(getSeriesDisplayName(series))}</span><small>${warningLabel}</small></span>
+            <span class="series-nav-item-meta">${metadata.map(value => `<span>${escapeSeriesHtml(value)}</span>`).join('')}</span>
+        </button>`;
+    }).join('');
+}
+
+function initWorkstationUi() {
+    const tabs = Array.from(elements.inspectorTabs || []);
+    tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => setInspectorTab(tab.dataset.inspectorTab));
+        tab.addEventListener('keydown', event => {
+            if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            let nextIndex = index;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % tabs.length;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === 'Home') nextIndex = 0;
+            if (event.key === 'End') nextIndex = tabs.length - 1;
+            setInspectorTab(tabs[nextIndex].dataset.inspectorTab, true);
+        });
+    });
+    setInspectorTab('measure');
+
+    safeAddListener(elements.seriesNavList, 'click', event => {
+        const item = event.target.closest('[data-workstation-series-key]');
+        if (!item) return;
+        activateSeries(decodeURIComponent(item.dataset.workstationSeriesKey));
+    });
+
+    if (elements.toolModeRadios) {
+        elements.toolModeRadios.forEach(radio => radio.addEventListener('change', () => {
+            updateToolModeUi();
+            setInspectorTab('measure');
+        }));
+    }
+    updateToolModeUi();
+
+    safeAddListener(elements.dicomCanvas, 'mousemove', updateWorkstationCursor);
+    safeAddListener(elements.dicomCanvas, 'mouseleave', () => {
+        if (elements.viewerCursorStatus) elements.viewerCursorStatus.textContent = '座標 --';
+    });
+    updateWorkstationStatus();
+    updateSystemStatus(state.files.length ? 'ready' : 'empty');
 }
 
 // ============================================
@@ -711,7 +942,8 @@ function updateSystemStatus(mode) {
 // ============================================
 function init() {
     populateElements(); // Find all elements now that DOM is ready
-    
+    initWorkstationUi();
+
     if (elements.dicomCanvas) {
         elements.ctx = elements.dicomCanvas.getContext('2d');
     }
@@ -720,10 +952,10 @@ function init() {
     const savedTheme = localStorage.getItem('dicom-roi-theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.setAttribute('data-theme', 'dark');
-        if (elements.themeIcon) elements.themeIcon.textContent = '☀️';
+        if (elements.themeIcon) elements.themeIcon.className = 'fa-solid fa-sun';
     } else {
         document.documentElement.setAttribute('data-theme', 'light');
-        if (elements.themeIcon) elements.themeIcon.textContent = '🌙';
+        if (elements.themeIcon) elements.themeIcon.className = 'fa-solid fa-moon';
     }
 
     setupEventListeners();
@@ -736,7 +968,7 @@ function setupEventListeners() {
         const currentTheme = document.documentElement.getAttribute('data-theme');
         const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', newTheme);
-        if (elements.themeIcon) elements.themeIcon.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+        if (elements.themeIcon) elements.themeIcon.className = `fa-solid ${newTheme === 'dark' ? 'fa-sun' : 'fa-moon'}`;
         localStorage.setItem('dicom-roi-theme', newTheme);
     });
 
@@ -969,8 +1201,18 @@ function setupEventListeners() {
     safeAddListener(elements.selectFolderBtn, 'click', () => elements.folderInput && elements.folderInput.click());
     safeAddListener(elements.folderInput, 'change', handleFileSelect);
 
-    safeAddListener(elements.selectFilesBtn, 'click', () => elements.filesInput && elements.filesInput.click());
-    safeAddListener(elements.filesInput, 'change', handleFileSelect);
+ safeAddListener(elements.selectFilesBtn, 'click', () => elements.filesInput && elements.filesInput.click());
+ safeAddListener(elements.filesInput, 'change', handleFileSelect);
+
+ safeAddListener(elements.imageContainer, 'click', event => {
+     const uploadButton = event.target.closest('[data-upload-action]');
+     if (!uploadButton || !elements.folderInput || !elements.filesInput) return;
+     if (uploadButton.dataset.uploadAction === 'folder') {
+         elements.folderInput.click();
+     } else if (uploadButton.dataset.uploadAction === 'files') {
+         elements.filesInput.click();
+     }
+ });
 
     // Sidebar selectors / 側邊欄快速載入按鈕
     safeAddListener(elements.sidebarSelectFolderBtn, 'click', () => elements.folderInput && elements.folderInput.click());
@@ -1910,6 +2152,7 @@ function getSeriesDisplayName(series) {
 }
 
 function renderSeriesManagerList() {
+    renderWorkstationSeriesNav();
     if (!elements.seriesList) return;
     const query = (elements.seriesFilterInput && elements.seriesFilterInput.value || '').trim().toLowerCase();
     const seriesList = Array.from(state.seriesMap.values())
@@ -2520,6 +2763,7 @@ function renderImage() {
 
     // Update WW/WL display
     elements.wwwlInfo.textContent = `WW: ${Math.round(state.windowWidth)} | WL: ${Math.round(state.windowLevel)}`;
+    updateWorkstationStatus();
 }
 
 function updateOverlayInfo() {
@@ -3027,6 +3271,9 @@ function setZoom(value) {
 
     elements.zoomSlider.value = value;
     elements.zoomValue.textContent = value + '%';
+    // Sync toolbar button label so it shows current zoom (click resets to 100%)
+    // 同步工具列按鈕顯示目前倍率（點擊可重設回 100%）
+    if (elements.zoomResetBtn) elements.zoomResetBtn.textContent = value + '%';
     renderImage();
 }
 
@@ -4102,18 +4349,21 @@ function hideModal(modalId) {
 // Loading Helpers
 // ============================================
 function showLoading(text) {
+    updateSystemStatus('processing');
     elements.loadingText.textContent = text || '載入中...';
     elements.loadingOverlay.classList.remove('hidden');
 }
 
 function hideLoading() {
     elements.loadingOverlay.classList.add('hidden');
+    updateSystemStatus('ready');
 }
 
 // ============================================
 // Toast Notification (取代 alert 的非阻塞通知)
 // ============================================
 function showToast(message, type = 'info', duration = 4000) {
+    if (type === 'error') updateSystemStatus('error');
     let container = document.getElementById('toastContainer');
     if (!container) {
         container = document.createElement('div');

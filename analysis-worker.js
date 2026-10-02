@@ -62,7 +62,7 @@ function getDicomSliceLocationValue(dataSet) {
 
 function getDicomExportValue(dataSet, tag) {
     try {
-        if (tag.startsWith('x0053104')
+        if (tag.startsWith('x005310')
             && (dataSet.string('x00530010') || '').trim() !== 'GEHC_CT_ADVAPP_001') {
             return '';
         }
@@ -107,7 +107,7 @@ self.onmessage = function(e) {
 
                 // 1. Apply Slice Location Filter
                 if (filterValue) {
-                    const sliceLoc = dataSet.string('x00201041') || '';
+                    const sliceLoc = getDicomSliceLocationValue(dataSet);
                     if (!isMatch(sliceLoc, filterValue)) {
                         completed++;
                         sendProgress(completed, totalItems);
@@ -203,7 +203,7 @@ self.onmessage = function(e) {
 
             // 1. Apply Slice Location Filter
             if (filterValue) {
-                const sliceLoc = dataSet.string('x00201041') || '';
+                const sliceLoc = getDicomSliceLocationValue(dataSet);
                 if (!isMatch(sliceLoc, filterValue)) {
                     self.postMessage({ type: completeType, results: [], chunkIndex, skipped: true });
                     return;
@@ -288,13 +288,17 @@ self.onmessage = function(e) {
  * Filter matching logic
  */
 function isMatch(sliceLoc, filterValue) {
-    if (sliceLoc === filterValue) return true;
-    const filterNum = parseFloat(filterValue);
-    if (!isNaN(filterNum)) {
-        const sliceNum = parseFloat(sliceLoc);
-        return (!isNaN(sliceNum) && Math.abs(sliceNum - filterNum) < 0.001);
+    const normalizedSlice = String(sliceLoc ?? '').trim();
+    const normalizedFilter = String(filterValue ?? '').trim();
+    if (!normalizedFilter) return true;
+    if (!normalizedSlice) return false;
+    if (normalizedSlice === normalizedFilter) return true;
+    const filterNum = Number(normalizedFilter);
+    if (Number.isFinite(filterNum)) {
+        const sliceNum = Number(normalizedSlice);
+        return Number.isFinite(sliceNum) && Math.abs(sliceNum - filterNum) < 0.001;
     }
-    return sliceLoc.includes(filterValue);
+    return normalizedSlice.includes(normalizedFilter);
 }
 
 /**

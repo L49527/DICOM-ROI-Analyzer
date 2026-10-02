@@ -1,5 +1,32 @@
 # DICOM ROI Analyzer 修改紀錄 (Change Log)
 
+## 2026-10-02: 修正多 Series ROI 分析與 GE VMI metadata (Multi-Series ROI and GE VMI Metadata Fix)
+
+### 變更項目 (Changes):
+- 一般「分析目前 Series 的全部影像」維持只分析目前選取的單一 Series；新增「分析全部 Series」流程，依 DICOM 病人座標對齊並分析所有相容 Series，再由「匯出全部 Series ROI CSV」輸出合併結果。
+- 跨 Series 分析若填寫 Slice Location，當某個 Series 沒有符合位置的影像時，會在分析摘要列出略過原因，不再靜默排除。
+- 補充 GE private tags `(0053,1066)`、`(0053,1075)` 與 `(0053,1089)` 的顯示與 CSV metadata 讀取；KVP 維持代表 acquisition voltage，VMI 單色能量另行保留。
+- 保留既有單一 Series、單張分析與匯出流程。
+
+### 驗證 (Verification):
+- ACR solid-water 2.5-mm 資料夾檢查到 21 個 Series：10 個 conventional CT 與 11 個 VMI。
+- 21 個 Series 的 Study、Frame of Reference、影像矩陣與 Pixel Spacing 通過目前跨 Series 的基本相容性條件。
+- `node --check app.js`
+- `node --check analysis-worker.js`
+
+## 2026-09-26: 修正 Slice Location 篩選套用範圍 (Fix Slice Location Filtering)
+
+### 變更項目 (Changes):
+- 「指定 Slice Location」現在統一套用於一般批次分析、相容模式、單張分析、跨 Series 分析與批次線段剖面 CSV 匯出，不再在指定位置後輸出全部影像。
+- 篩選比對沿用 CSV 的位置解析：優先使用 `(0020,1041) SliceLocation`；缺少時以 `ImagePositionPatient` 與 `ImageOrientationPatient` 推算。
+
+## 2026-09-26: 新增固定像素座標跨 Patient ROI 模式 (Fixed Pixel-Coordinate ROI Mode)
+
+### 變更項目 (Changes):
+- 跨 Series ROI 新增「固定像素座標（跨 Patient）」模式，直接套用 ROI 的 X、Y 與半徑，不要求不同 Patient 或 Series 具有相同 `FrameOfReferenceUID`。
+- 匯出的 cross-Series CSV 固定記錄 `ROI_TransferMode`，明確標示使用 `fixed-pixel-coordinate` 或 `patient-coordinate`。
+- 固定像素座標模式仍會檢查 Rows／Columns 與 ROI 邊界；超出目標影像範圍的影像會被略過。
+
 ## 2026-09-21: 更新 CSV 匯出欄位與影像類型預設 (Updated CSV Export Presets)
 
 ### 變更項目 (Changes):

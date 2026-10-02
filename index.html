@@ -314,7 +314,15 @@
                                     </div>
                                     <div class="control-group checkbox-group">
                                         <input type="checkbox" id="crossSeriesRoiToggle" class="checkbox-lg" checked>
-                                        <label for="crossSeriesRoiToggle" class="checkbox-label">跨 Series 固定 ROI（病人座標）</label>
+                                        <label for="crossSeriesRoiToggle" class="checkbox-label">啟用跨 Series ROI</label>
+                                    </div>
+                                    <div class="control-group">
+                                        <label for="crossSeriesRoiMode">ROI 對位方式</label>
+                                        <select id="crossSeriesRoiMode">
+                                            <option value="patient">病人座標（解剖位置）</option>
+                                            <option value="pixel">固定像素座標（跨 Patient）</option>
+                                        </select>
+                                        <p class="hint">固定像素座標會直接套用 ROI 的 X／Y／半徑，適合固定矩陣或跨 Patient protocol 比較；不代表相同解剖位置。</p>
                                     </div>
                                     <div id="crossSeriesRoiStatus" class="hint">切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊</div>
                                     <div class="control-group">
@@ -377,11 +385,12 @@
                                     <input type="text" id="sliceLocationFilter" placeholder="例如: -50 或 100.5">
                                     <p class="hint">若填寫，僅分析符合此位置的影像</p>
                                 </div>
-                                <button id="analyzeBtn" class="btn btn-primary btn-block" disabled><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 分析全部影像</button>
-                                <button id="crossSeriesAnalyzeBtn" class="btn btn-secondary btn-block mt-2" disabled title="以 DICOM 病人座標 anchors 對齊所有相容 Series"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> 跨 Series 分析</button>
+                                <button id="analyzeBtn" class="btn btn-primary btn-block" disabled title="只分析目前在 Series 清單中選取的 Series"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 分析目前 Series 的全部影像</button>
+                                <p class="hint analysis-scope-hint">此按鈕只處理目前選取的 Series。若要同時處理目前載入的多個 Series，請使用下方「分析全部 Series」。</p>
+                                <button id="crossSeriesAnalyzeBtn" class="btn btn-secondary btn-block mt-2" disabled title="以 DICOM 病人座標對齊並分析所有相容 Series"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> 分析全部 Series</button>
                                 <div id="analysisProgress" class="progress-container hidden"><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><span id="progressText">0%</span></div>
-                                <div id="crossSeriesSummary" class="cross-series-summary" data-tone="info">跨 Series 分析需要至少兩個相容 Series 與一組 ROI</div>
-                                <button id="crossSeriesExportBtn" class="btn btn-success btn-block mt-2" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出 cross_series CSV</button>
+                                <div id="crossSeriesSummary" class="cross-series-summary" data-tone="info">全部 Series ROI 分析需要至少兩個相容 Series 與一組 ROI</div>
+                                <button id="crossSeriesExportBtn" class="btn btn-success btn-block mt-2" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出全部 Series ROI CSV</button>
                                 <div class="single-analysis-section">
                                     <label class="subsection-label"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> 單張影像分析</label>
                                     <div class="single-analysis-controls">

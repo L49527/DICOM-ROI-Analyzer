@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="workstation.css">
 </head>
 
 <body>
@@ -59,7 +60,7 @@
                 </div>
             </div>
 
-            <!-- Viewer Panel (After Loading): three-column workstation -->
+            <!-- WorkstationUI mounts these existing controls into the image-first layout. -->
  <div id="viewerPanel" class="viewer-panel">
                 <aside class="series-sidebar" aria-label="Series 與切片導覽">
                     <div class="sidebar-title-row">
@@ -330,11 +331,12 @@
                                         <div class="roi-count-display"><span id="roiCount">0</span> 個</div>
                                     </div>
                                     <div id="roiListContainer" class="roi-list-container"></div>
+                                    <button id="deleteSelectedRoiBtn" class="btn btn-secondary btn-sm btn-block" disabled>刪除選取 ROI</button>
                                     <div class="roi-buttons">
                                         <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> 刪除上一個 <span class="text-xs">(Ctrl+Z)</span></button>
                                         <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除全部 <span class="text-xs">(Del)</span></button>
                                     </div>
-                                    <p class="hint">點擊影像新增 ROI，Backspace 刪除</p>
+                                    <p class="hint">點空白處新增；點 ROI 選取，再拖曳或修改 X／Y。重疊的 ROI 可從清單選取。Backspace 刪除選取項目。</p>
                                 </div>
 
                                 <div id="lineSettingsSection" class="hidden">
@@ -380,33 +382,48 @@
                         <section id="inspector-panel-analysis" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabAnalysis" data-inspector-panel="analysis" hidden>
                             <div class="control-card">
                                 <h3><i class="fa-solid fa-chart-column" aria-hidden="true"></i> 分析</h3>
-                                <div class="control-group">
-                                    <label for="sliceLocationFilter">指定 Slice Location (選填)</label>
-                                    <input type="text" id="sliceLocationFilter" placeholder="例如: -50 或 100.5">
-                                    <p class="hint">若填寫，僅分析符合此位置的影像</p>
+                                <div id="analysisSettings">
+                                    <div class="control-group">
+                                        <label for="analysisScope">1. 分析範圍</label>
+                                        <select id="analysisScope"><option value="current">目前 Series</option><option value="all">全部 Series</option><option value="single">單張影像</option></select>
+                                    </div>
+                                    <div id="singleImageGroup" class="control-group" hidden>
+                                        <label for="singleImageSelect">選擇影像</label>
+                                        <select id="singleImageSelect"><option value="">-- 選擇影像 --</option></select>
+                                        <p class="hint">切片規則仍會檢查這張影像，不會自動替換。</p>
+                                    </div>
+                                    <div class="control-group">
+                                        <label for="sliceSelectionMode">2. 切片規則</label>
+                                        <select id="sliceSelectionMode"><option value="all">全部切片</option><option value="exact">精確位置</option><option value="nearest">最近切片</option></select>
+                                    </div>
+                                    <div id="sliceLocationFields" hidden>
+                                        <div class="control-group">
+                                            <label for="sliceLocationFilter">目標 Slice Location（mm）</label>
+                                            <input type="number" id="sliceLocationFilter" step="any" placeholder="例如：0" aria-describedby="sliceRuleHint">
+                                        </div>
+                                        <div id="maxDistanceGroup" class="control-group" hidden>
+                                            <label for="maxSliceDistance">最大距離（mm）</label>
+                                            <input type="number" id="maxSliceDistance" min="0" step="any" placeholder="請自行設定" aria-describedby="sliceRuleHint">
+                                        </div>
+                                        <p id="sliceRuleHint" class="hint">精確位置：差距 &lt; 0.001 mm。最近切片：只取距離上限內的最近位置；等距時需選擇。</p>
+                                    </div>
+                                    <label id="tieOptions" class="checkbox-label" hidden><input type="checkbox" id="applyTieToSimilar"> 將選擇套用至候選位置相同的 Series</label>
                                 </div>
-                                <button id="analyzeBtn" class="btn btn-primary btn-block" disabled title="只分析目前在 Series 清單中選取的 Series"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 分析目前 Series 的全部影像</button>
-                                <p class="hint analysis-scope-hint">此按鈕只處理目前選取的 Series。若要同時處理目前載入的多個 Series，請使用下方「分析全部 Series」。</p>
-                                <button id="crossSeriesAnalyzeBtn" class="btn btn-secondary btn-block mt-2" disabled title="以 DICOM 病人座標對齊並分析所有相容 Series"><i class="fa-solid fa-layer-group" aria-hidden="true"></i> 分析全部 Series</button>
+                                <h4 class="subsection-label">3. 確認預覽</h4>
+                                <p id="previewCounts" class="analysis-counts" aria-live="polite"></p>
+                                <p id="analysisValidation" class="analysis-validation" role="status"></p>
+                                <div id="analysisPreview" class="analysis-preview"></div>
+                                <details class="analysis-help"><summary>如何確認分析條件？</summary><p>查看每個 Series 的張數、實際位置、偏差與未納入原因。相同位置的重複取像會全部保留。ROI 圓周超出影像時，請先移動或縮小 ROI。</p><p>病人座標是平面投影，不是影像配準；固定像素座標也不保證相同解剖位置。分析前請檢查影像。</p></details>
+                                <div class="analysis-actions">
+                                    <button id="analyzeBtn" class="btn btn-primary" disabled>開始分析</button>
+                                    <button id="cancelAnalysisBtn" class="btn btn-secondary" disabled>取消</button>
+                                </div>
                                 <div id="analysisProgress" class="progress-container hidden"><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><span id="progressText">0%</span></div>
-                                <div id="crossSeriesSummary" class="cross-series-summary" data-tone="info">全部 Series ROI 分析需要至少兩個相容 Series 與一組 ROI</div>
-                                <button id="crossSeriesExportBtn" class="btn btn-success btn-block mt-2" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出全部 Series ROI CSV</button>
-                                <div class="single-analysis-section">
-                                    <label class="subsection-label"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> 單張影像分析</label>
-                                    <div class="single-analysis-controls">
-                                        <select id="singleImageSelect" class="single-image-select"><option value="">-- 選擇影像 --</option></select>
-                                        <button id="analyzeSingleBtn" class="btn btn-secondary" disabled title="分析選定的單張影像"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 分析</button>
-                                    </div>
-                                    <div id="singleResultActions" class="single-result-actions hidden">
-                                        <div class="single-result-header"><span id="singleResultInfo">分析完成</span><button id="exportSingleBtn" class="btn btn-success btn-sm" title="匯出單張分析結果"><i class="fa-solid fa-file-csv" aria-hidden="true"></i> 匯出 CSV</button></div>
-                                        <div id="singleResultTable" class="single-result-table"></div>
-                                    </div>
-                                    <p class="hint">選擇特定影像進行單獨分析</p>
-                                </div>
-                            </div>
-                            <div class="control-card">
-                                <h3><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出</h3>
-                                <button id="exportBtn" class="btn btn-success btn-block" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 選擇標籤並匯出</button>
+                                <div id="analysisStatus" class="cross-series-summary" role="status" aria-live="polite">設定 ROI 與分析條件後，確認預覽再開始。</div>
+                                <details id="analysisDetails" hidden><summary>略過與失敗明細</summary><ul id="analysisRunDetails" class="analysis-run-details"></ul></details>
+                                <details class="analysis-result-preview"><summary>結果預覽</summary><div id="analysisResultTable"></div></details>
+                                <button id="exportBtn" class="btn btn-success btn-block" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 選擇欄位並匯出 CSV</button>
+                                <p class="hint">修改 ROI、來源或切片規則後，請重新分析。取消的結果不能匯出。</p>
                             </div>
                         </section>
                     </div>
@@ -444,11 +461,39 @@
                     <button class="modal-close" id="closeHelpBtn">✕</button>
                 </div>
                 <div class="modal-body">
+                    <h3>快速開始</h3>
+                    <ol class="help-steps">
+                        <li>載入資料夾或 DICOM 檔案。</li>
+                        <li>按頂部「Series」，再按目標來源的「開啟 Series」。</li>
+                        <li>在影像空白處點擊以新增 ROI。</li>
+                        <li>在下方「分析條件」選擇範圍與切片規則。</li>
+                        <li>按「逐 Series 明細」或「處理待確認項目」，檢查位置及略過原因。</li>
+                        <li>按「開始分析」。</li>
+                        <li>檢查完成狀態與失敗明細。</li>
+                        <li>按底部「匯出 CSV」，確認欄位後再匯出。</li>
+                    </ol>
+                    <details class="analysis-help"><summary>切片規則與 ROI 對位</summary>
+                        <p>「全部切片」不限制位置。「精確位置」要求差距 &lt; 0.001 mm。「最近切片」需自行填入最大距離；兩側等距時，請先選擇。相同位置的重複取像全部保留。</p>
+                        <p>「全部 Series」需要啟用跨 Series ROI。病人座標會檢查幾何資訊，但不是影像配準。固定像素座標直接使用 X／Y／半徑，不代表相同解剖位置。</p>
+                        <p>ROI 圓周超出影像時不能開始分析。請移動 ROI 或縮小半徑。</p>
+                    </details>
+                    <details class="analysis-help"><summary>結果、VMI 與資料保留</summary>
+                        <p>kVp 是管電壓，不是 VMI keV。已驗證 GE creator 的 VMI 能量來自 (0053,1075)；(0053,1066) 為顯示註記。缺少能量標籤時，CSV 保留空白。</p>
+                        <p>修改 ROI、影像來源或分析條件後，舊結果失效。取消不保留可匯出的部分結果。「部分完成」可手動匯出成功資料，請檢查失敗明細。</p>
+                        <p>資料在瀏覽器內處理。程式不儲存影像、ROI 或分析結果。重新整理或關閉頁面後需重新設定。下載的 CSV 可能包含姓名與 ID，分享前請確認欄位。</p>
+                        <p>批次線段剖面只處理目前 Series，並沿用「分析條件」的切片規則。</p>
+                    </details>
+                    <details class="analysis-help"><summary>布局與影像顯示</summary>
+                        <p>上方顯示影像，下方同時顯示 ROI 清單與分析條件。拖曳中間分隔線可調整高度；聚焦分隔線後可按上下方向鍵，按 Home 或「重設布局」回復預設高度。</p>
+                        <p>影像預設符合畫布。手動縮放或平移後，按「符合畫布」恢復。點倍率按鈕回到 100%。這些操作只改變顯示，不改 ROI 座標或取樣結果。</p>
+                        <p>「影像設定」保留窗位預設、旋轉、格線及 DICOM 標籤。ROI 對位方式在「進階與對位」中。較窄或較矮的視窗改用捲動布局。</p>
+                    </details>
+                    <p><a href="README.md" target="_blank" rel="noopener">完整使用說明與修改紀錄（README）</a></p>
                         <h3><i class="fa-solid fa-computer-mouse" aria-hidden="true"></i> 滑鼠操作</h3>
                     <table class="help-table">
                         <tr>
                             <td><strong>左鍵點擊</strong></td>
-                            <td>新增 ROI 圓心位置 (可多個)</td>
+                            <td>點空白處新增；點 ROI 選取；拖曳選取的 ROI 可移動</td>
                         </tr>
                         <tr>
                             <td><strong>右鍵拖曳</strong></td>
@@ -487,8 +532,12 @@
                             <td>平移影像 (Pan)</td>
                         </tr>
                         <tr>
-                            <td><kbd>Backspace</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td>
-                            <td>刪除上一個 ROI (復原)</td>
+                            <td><kbd>Backspace</kbd></td>
+                            <td>刪除選取 ROI；未選取時刪除最後一個</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Ctrl</kbd> / <kbd>Cmd</kbd>+<kbd>Z</kbd></td>
+                            <td>刪除最後新增的 ROI；不是通用復原</td>
                         </tr>
                         <tr>
                             <td><kbd>Delete</kbd></td>
@@ -521,6 +570,7 @@
                     <button type="button" class="btn btn-sm btn-secondary" data-export-preset="research">研究完整</button>
                     <span id="tagPresetHint" class="tag-preset-hint"></span>
                 </div>
+                <p class="hint">切片選擇資訊固定保留；ROI CSV 也保留 SeriesNumber 與 ROI_TransferMode。姓名／ID 可取消勾選。</p>
                 <div class="tag-actions">
                     <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
                     <button id="deselectAllTags" class="btn btn-sm btn-secondary">全不選</button>
@@ -654,7 +704,10 @@
     </div>
 
     <script src="dicomParser.min.js"></script>
+    <script src="analysis-core.js"></script>
     <script src="app.js"></script>
+    <script src="analysis-workflow.js"></script>
+    <script src="workstation.js"></script>
 </body>
 
 </html>

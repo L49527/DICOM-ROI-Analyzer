@@ -567,13 +567,21 @@
                     <span class="tag-preset-label">CSV 欄位預設</span>
                     <button type="button" class="btn btn-sm btn-secondary" data-export-preset="ct">CT</button>
                     <button type="button" class="btn btn-sm btn-secondary" data-export-preset="xray">X 光</button>
-                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="research">研究完整</button>
                     <span id="tagPresetHint" class="tag-preset-hint"></span>
                 </div>
-                <p class="hint">切片選擇資訊固定保留；ROI CSV 也保留 SeriesNumber 與 ROI_TransferMode。姓名／ID 可取消勾選。</p>
+                <div id="tagPrivacyWarning" class="tag-privacy-warning">
+                    <strong>⚠️ 身分資料提醒</strong>
+                    <span>PatientName 與 PatientID 預設勾選；上傳或分享 CSV 前請確認是否應移除。</span>
+                    <button id="removeIdentityTags" type="button" class="btn btn-sm btn-secondary">移除身分欄位</button>
+                </div>
+                <section class="fixed-export-fields" aria-labelledby="fixedExportFieldsTitle">
+                    <h3 id="fixedExportFieldsTitle">固定輸出欄位</h3>
+                    <p class="hint">這些欄位依目前資料與切片規則保留，不可取消；全空欄位不會顯示或輸出。</p>
+                    <div id="fixedExportFieldList" class="fixed-export-field-list"></div>
+                </section>
                 <div class="tag-actions">
                     <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
-                    <button id="deselectAllTags" class="btn btn-sm btn-secondary">全不選</button>
+                    <button id="deselectAllTags" class="btn btn-sm btn-secondary">只留必備</button>
                     </div>
                     <div id="tagList" class="tag-list"></div>
                 </div>

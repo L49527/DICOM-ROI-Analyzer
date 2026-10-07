@@ -1229,6 +1229,56 @@ body {
     margin-bottom: var(--spacing-md);
 }
 
+.tag-privacy-warning {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+    padding: 12px 14px;
+    color: var(--text-primary);
+    background: color-mix(in srgb, #f0a44b 16%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, #f0a44b 65%, var(--border-color));
+    border-radius: var(--radius-sm);
+}
+
+.tag-privacy-warning .btn {
+    margin-left: auto;
+}
+
+.tag-privacy-warning.identity-removed {
+    opacity: 0.72;
+}
+
+.fixed-export-fields {
+    margin-bottom: var(--spacing-md);
+    padding: 12px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.fixed-export-fields h3 {
+    margin: 0 0 4px;
+    font-size: 0.95rem;
+}
+
+.fixed-export-field-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.fixed-export-field {
+    padding: 5px 9px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-size: 0.8rem;
+}
+
 .tag-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

@@ -199,12 +199,33 @@ X 從左向右增加。Y 從上向下增加。左上像素為 `(0, 0)`。座標�
 
 1. 確認結果仍有效。
 2. 按底部「匯出 CSV」。
-3. 選擇 CT、X 光或研究完整預設。
-4. 調整要輸出的欄位。
-5. 檢查姓名與 ID 是否適合保留。
+3. 選擇「CT 預設」或「X 光預設」。
+4. 調整要輸出的欄位；固定輸出欄位會另列且不能取消。
+5. 檢查姓名與 ID 是否適合保留；需要時按「移除身分欄位」。
 6. 按「匯出 CSV」。
 
 每列代表「一張影像中的一個 ROI」。CSV 使用 UTF-8 BOM。缺漏的 metadata 保留空白，不由檔名猜測，也不以 0 代替。
+
+### 預設判定與欄位狀態
+
+- 預設依本次結果中的全部影像 modality 判定，不依目前畫面上的單張影像判定。
+- 全部為 CT 時使用「CT 預設」。全部為平面 X 光（`CR`、`DX`、`DR`、`MG`、`XA` 或 `RF`）時使用「X 光預設」。未知或混合 modality 以最低必備欄位為基礎，介面顯示「自訂」；PatientName、PatientID 與 AcquisitionTime 若有值仍依全類型規則預設勾選，且都可取消。不再提供「研究完整」預設。
+- 「CT 預設」保留曝光、幾何、VMI、GE 重建、ROI 與全影像統計等研究／品管欄位。「X 光預設」另提供正式投照欄位：`(0018,0015) BodyPartExamined`、`(0018,5101) ViewPosition`、`(0020,0062) ImageLaterality`、`(0018,1110) DistanceSourceToDetector`。缺漏時留白，不從檔名或 SeriesDescription 推測。
+- 欄位視窗只列出目前結果中至少一列有值的欄位；全空欄位不顯示，也不輸出。部分列有值的欄位保留，其他列留白。數值 `0` 是有效值，不會被當成空白。
+- 「固定輸出欄位」區塊列出目前工作類型與切片模式所需的最低欄位，不能取消。「只留必備」會移除其他可選欄位。「CT 預設」與「X 光預設」會重設目前工作類型的可選欄位。
+- 欄位勾選只保留在目前頁面記憶體，分成 ROI／線段各自的 CT、X 光、自訂六份設定。重新整理頁面後清除，不使用 localStorage。再次開啟視窗時，會載入對應設定，再與目前可用且非全空的欄位取交集，最後補回固定欄位。
+
+### ROI CSV 固定與最低欄位
+
+ROI CSV 的固定輸出欄位依序包含：
+
+- 來源：`FileName`、`SeriesNumber`、`AcquisitionNumber`、`InstanceNumber`。
+- ROI 定義：`ROI_ID`、`ROI_X`、`ROI_Y`、`ROI_R`、`ROI_Pixels`。
+- ROI 結果：`ROI_Mean`、`ROI_Noise_SD`。
+- 對位：`ROI_TransferMode`。
+- CT 選片：`SliceSelectionMode`、`SliceLocation`；精確／最近模式另含 `RequestedSliceLocation`、`SliceOffset_mm`；最近模式再含 `MaxSliceDistance_mm`。X 光不強制輸出切片或切片距離欄位。
+
+`AcquisitionTime` 預設勾選但可取消。`ROI_R_mm`、`ROI_Area_mm2`、`FullImage_Mean`、`FullImage_SD` 由 CT／X 光預設勾選，但都不是不可取消的最低欄位。
 
 | 欄位 | 說明 |
 | --- | --- |
@@ -223,9 +244,17 @@ X 從左向右增加。Y 從上向下增加。左上像素為 `(0, 0)`。座標�
 | SliceOffset_mm | 實際位置減目標位置；未指定目標時空白 |
 | MaxSliceDistance_mm | 最近切片的距離上限；其他模式空白 |
 
-ROI CSV 固定保留切片選擇資訊、SeriesNumber 與 ROI_TransferMode，即使取消其他欄位勾選也不會移除。
+### 批次線段 CSV
+
+批次線段 CSV 的座標與距離欄維持固定結構，`FileName` 繼續作為影像資料欄標題。固定 metadata 為 `SeriesNumber`、`AcquisitionNumber`、`InstanceNumber`；CT 依實際選片模式加入適用的切片欄位。`AcquisitionTime` 預設勾選但可取消，匯出不會暗中補回已取消的欄位。
+
+### 隱私與禁止欄位
+
+`PatientName` 與 `PatientID` 維持預設勾選。欄位視窗會顯示醒目隱私警示，並提供「移除身分欄位」快捷按鈕；按下後不再顯示二次確認視窗。分享前請依機構規範檢查。
 
 `SeriesInstanceUID`、`FrameOfReferenceUID`、`SOPInstanceUID`、`ProtocolName` 僅用於內部分組／驗證，不提供 CSV 輸出。這不等於自動去識別化；CSV 預設仍可能包含 PatientName 與 PatientID。
+
+欄位順序固定為：來源／身分 → 採集 → 幾何／重建或投照 → 選片／對位 → ROI 定義 → ROI／全影像結果。
 
 ## kVp、keV 與 GE 標籤
 
@@ -279,6 +308,7 @@ VMI 顯示 `KVP=140` 不代表 `140 keV`。應分別查看管電壓與 Monochrom
 
 - 影像、ROI、切片選擇與結果只存在目前頁面的記憶體。
 - 不提供 ROI 設定匯入／匯出、自動儲存、IndexedDB 或後端研究資料儲存。
+- CSV 欄位勾選只保留在目前頁面，分成 ROI／線段各自的 CT、X 光、自訂六份工作階段設定；重新整理頁面後清除，不使用 localStorage。
 - 關閉或重新整理前，請先下載所需結果。下載檔案依瀏覽器設定保留。
 - 只有明／暗主題使用 localStorage。
 - 網頁可能向外部字型與圖示服務取得靜態資源；DICOM 處理程式不會上傳影像或分析結果。完整離線顯示仍取決於字型／圖示快取。
@@ -300,6 +330,15 @@ node --check analysis-worker.js
 ```
 
 ## 修改紀錄
+
+### 2026-10-07：CSV 欄位預設修正
+
+#### 實作內容
+
+- 移除「研究完整」預設，改由本次全部結果的 modality 選擇 CT、X 光或以最低必備欄位為基礎的「自訂」設定。
+- ROI 與批次線段共用全空欄移除、數值 `0` 有效、固定欄位、預設重設與工作階段記憶規則。
+- 補充 X 光 `BodyPartExamined`、`ViewPosition`、`ImageLaterality`、`DistanceSourceToDetector` 四個正式投照欄位。
+- 保留 PatientName／PatientID 預設勾選與隱私警示；禁止輸出四個 UID／ProtocolName 欄位。
 
 ### 2026-10-06：第 2 版介面核對與說明補齊
 

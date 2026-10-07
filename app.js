@@ -76,6 +76,12 @@ const state = {
     results: [],
     availableTags: new Set(),
     selectedTags: new Set(),
+    requiredExportTags: new Set(),
+    exportSelections: new Map(),
+    exportRows: [],
+    exportPresetName: 'custom',
+    exportProfileKey: '',
+    lineExportSelection: null,
 
     // Display tags on image overlay
     displayTags: new Set(),
@@ -130,6 +136,10 @@ const COMMON_TAGS = [
     { tag: 'x00181152', name: 'Exposure' },
     { tag: 'x00181151', name: 'XRayTubeCurrent' },
     { tag: 'x00180060', name: 'KVP' },
+    { tag: 'x00180015', name: 'BodyPartExamined' },
+    { tag: 'x00185101', name: 'ViewPosition' },
+    { tag: 'x00200062', name: 'ImageLaterality' },
+    { tag: 'x00181110', name: 'DistanceSourceToDetector' },
     // GEHC_CT_ADVAPP_001 spectral-CT fields. Keep KVP and VMI energy
     // separate: KVP is the acquisition tube voltage, while
     // MonochromaticEnergy is the reconstructed VMI energy in keV.
@@ -161,48 +171,13 @@ const COMMON_TAGS = [
     { tag: 'x00531043', name: 'IterativeReconLevel' }
 ];
 
-// Canonical ROI export columns. Keep this aligned with the validated
-// Water phantom analysis CSV, with SliceThickness added explicitly.
-// ROI 匯出的標準欄位：依已確認的 Water phantom CSV，另加入切片厚度。
-const DEFAULT_ROI_EXPORT_TAGS = [
-    'PatientName',
-    'PatientID',
-    'FileName',
-    'ROI_ID',
-    'ROI_Mean',
-    'ROI_Noise_SD',
-    'FullImage_Mean',
-    'FullImage_SD',
-    'ExposureIndex',
-    'KVP',
-    'MonochromaticEnergy',
-    'MultiEnergyKVUnitLabel',
-    'ImageBrowserAnnotation',
-    'SliceLocation',
-    'SliceThickness',
-    'SeriesDescription',
-    'Manufacturer',
-    'XRayTubeCurrent',
-    'Rows',
-    'Columns',
-    'Modality',
-    'StudyDate',
-    'ExposureTime',
-    'Exposure',
-    'ROI_R',
-    'ROI_R_mm',
-    'ROI_Area_mm2',
-    'ROI_X',
-    'ROI_Y',
-    'ROI_Pixels'
-];
-
 // Modality-specific CSV presets. Exposure (0018,1152) is mAs; CT therefore
 // prioritizes kVp, tube current, exposure time, mAs and reconstruction geometry.
 // 依影像類型提供 CSV 預設；CT 優先輸出 kVp、mA、ms、mAs 與重建幾何資訊。
 const CT_ROI_EXPORT_TAGS = [
     'PatientName', 'PatientID', 'StudyDate', 'Modality', 'Manufacturer',
-    'FileName', 'SeriesDescription', 'SeriesNumber',
+    'FileName', 'SeriesDescription', 'SeriesNumber', 'AcquisitionNumber',
+    'AcquisitionTime', 'InstanceNumber',
     'KVP', 'MonochromaticEnergy', 'MultiEnergyKVUnitLabel',
     'ImageBrowserAnnotation', 'XRayTubeCurrent', 'ExposureTime', 'Exposure',
     'SliceThickness', 'SliceLocation', 'PixelSpacing', 'Rows', 'Columns',
@@ -215,9 +190,11 @@ const CT_ROI_EXPORT_TAGS = [
 
 const XRAY_ROI_EXPORT_TAGS = [
     'PatientName', 'PatientID', 'StudyDate', 'Modality', 'Manufacturer',
-    'FileName', 'SeriesDescription',
+    'FileName', 'SeriesDescription', 'SeriesNumber', 'AcquisitionNumber',
+    'AcquisitionTime', 'InstanceNumber',
     'KVP', 'XRayTubeCurrent', 'ExposureTime', 'Exposure',
     'ExposureIndex', 'TargetExposureIndex', 'DeviationIndex',
+    'BodyPartExamined', 'ViewPosition', 'ImageLaterality', 'DistanceSourceToDetector',
     'Rows', 'Columns',
     'ROI_ID', 'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD',
     'ROI_R', 'ROI_R_mm', 'ROI_Area_mm2', 'ROI_X', 'ROI_Y', 'ROI_Pixels'
@@ -225,9 +202,39 @@ const XRAY_ROI_EXPORT_TAGS = [
 
 const EXPORT_TAG_PRESETS = {
     ct: CT_ROI_EXPORT_TAGS,
-    xray: XRAY_ROI_EXPORT_TAGS,
-    research: DEFAULT_ROI_EXPORT_TAGS
+    xray: XRAY_ROI_EXPORT_TAGS
 };
+
+const XRAY_MODALITIES = new Set(['CR', 'DX', 'DR', 'MG', 'XA', 'RF']);
+const ROI_REQUIRED_EXPORT_TAGS = [
+    'FileName', 'SeriesNumber', 'AcquisitionNumber', 'InstanceNumber',
+    'ROI_ID', 'ROI_X', 'ROI_Y', 'ROI_R', 'ROI_Pixels',
+    'ROI_Mean', 'ROI_Noise_SD', 'ROI_TransferMode'
+];
+const LINE_REQUIRED_EXPORT_TAGS = ['SeriesNumber', 'AcquisitionNumber', 'InstanceNumber'];
+const CT_BASE_SELECTION_TAGS = ['SliceSelectionMode', 'SliceLocation'];
+const EXACT_SELECTION_TAGS = ['RequestedSliceLocation', 'SliceOffset_mm'];
+const NEAREST_SELECTION_TAGS = ['MaxSliceDistance_mm'];
+
+// CSV order is stable even when fields are omitted because they are empty.
+const EXPORT_COLUMN_ORDER = [
+    'FileName', 'PatientName', 'PatientID',
+    'StudyDate', 'Modality', 'Manufacturer', 'SeriesDescription', 'SeriesNumber',
+    'AcquisitionNumber', 'AcquisitionTime', 'InstanceNumber',
+    'KVP', 'XRayTubeCurrent', 'ExposureTime', 'Exposure',
+    'ExposureIndex', 'TargetExposureIndex', 'DeviationIndex',
+    'BodyPartExamined', 'ViewPosition', 'ImageLaterality', 'DistanceSourceToDetector',
+    'Rows', 'Columns', 'PixelSpacing', 'SliceThickness',
+    'ConvolutionKernel', 'ReconstructionAlgorithm',
+    'MonochromaticEnergy', 'MultiEnergyKVUnitLabel', 'ImageBrowserAnnotation',
+    'IterativeReconAnnotation', 'IterativeReconMode',
+    'IterativeReconConfiguration', 'IterativeReconLevel',
+    'SliceSelectionMode', 'RequestedSliceLocation', 'SliceLocation',
+    'SliceOffset_mm', 'MaxSliceDistance_mm', 'ROI_TransferMode',
+    'ROI_ID', 'ROI_X', 'ROI_Y', 'ROI_R', 'ROI_R_mm', 'ROI_Area_mm2', 'ROI_Pixels',
+    'ROI_Mean', 'ROI_Noise_SD', 'FullImage_Mean', 'FullImage_SD'
+];
+const EXPORT_COLUMN_RANK = new Map(EXPORT_COLUMN_ORDER.map((tag, index) => [tag, index]));
 
 
 // These identifiers remain available internally for grouping and validation,
@@ -485,6 +492,9 @@ const elements = {
     themeIcon: null,
     selectAllTags: null,
     deselectAllTags: null,
+    removeIdentityTags: null,
+    tagPrivacyWarning: null,
+    fixedExportFieldList: null,
     cancelExportBtn: null,
     confirmExportBtn: null,
 
@@ -649,6 +659,9 @@ function populateElements() {
     elements.themeIcon = document.getElementById('themeIcon');
     elements.selectAllTags = document.getElementById('selectAllTags');
     elements.deselectAllTags = document.getElementById('deselectAllTags');
+    elements.removeIdentityTags = document.getElementById('removeIdentityTags');
+    elements.tagPrivacyWarning = document.getElementById('tagPrivacyWarning');
+    elements.fixedExportFieldList = document.getElementById('fixedExportFieldList');
     elements.cancelExportBtn = document.getElementById('cancelExportBtn');
     elements.confirmExportBtn = document.getElementById('confirmExportBtn');
     elements.loadingOverlay = document.getElementById('loadingOverlay');
@@ -1395,6 +1408,7 @@ safeAddListener(elements.deleteLastRoiBtn, 'click', deleteLastRoi);
     });
     safeAddListener(elements.selectAllTags, 'click', () => toggleAllTags(true));
     safeAddListener(elements.deselectAllTags, 'click', () => toggleAllTags(false));
+    safeAddListener(elements.removeIdentityTags, 'click', removeIdentityExportTags);
     document.querySelectorAll('[data-export-preset]').forEach(button => {
         safeAddListener(button, 'click', () => applyExportTagPreset(button.dataset.exportPreset));
     });
@@ -3403,22 +3417,79 @@ function updateRoiPhysicalInfo() {
 // ============================================
 // Export
 // ============================================
-function getCurrentModality() {
-    const fileObject = state.files[state.currentIndex] || state.files[0] || state.allFiles[0];
-    return getDicomString(fileObject && fileObject.dataSet, 'x00080060', '').toUpperCase();
+function hasExportValue(value) {
+    if (value === 0 || value === false) return true;
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== '';
 }
 
-function getDefaultExportPresetName() {
-    const modality = getCurrentModality();
-    if (modality === 'CT') return 'ct';
-    if (['CR', 'DX', 'DR', 'MG', 'XA', 'RF'].includes(modality)) return 'xray';
-    return 'research';
+function orderExportTags(tags) {
+    return [...new Set(tags)]
+        .filter(tag => !NON_EXPORTABLE_TAGS.has(tag))
+        .sort((a, b) => {
+            const rankA = EXPORT_COLUMN_RANK.has(a) ? EXPORT_COLUMN_RANK.get(a) : Number.MAX_SAFE_INTEGER;
+            const rankB = EXPORT_COLUMN_RANK.has(b) ? EXPORT_COLUMN_RANK.get(b) : Number.MAX_SAFE_INTEGER;
+            return rankA - rankB || String(a).localeCompare(String(b), 'zh-TW');
+        });
+}
+
+function buildLineExportRows(selection) {
+    return selection.tasks.map(task => {
+        const fileObject = task.fileObject;
+        const row = { FileName: fileObject.file.name };
+        COMMON_TAGS.forEach(({ tag, name }) => {
+            if (!NON_EXPORTABLE_TAGS.has(name)) row[name] = getDicomExportValue(fileObject.dataSet, tag);
+        });
+        return { ...row, ...AnalysisCore.selectionMetadata(fileObject.dataSet, selection.config) };
+    });
+}
+
+function classifyExportRows(rows) {
+    if (!rows.length) return 'custom';
+    const modalities = rows.map(row => String(row.Modality ?? '').trim().toUpperCase());
+    if (modalities.every(modality => modality === 'CT')) return 'ct';
+    if (modalities.every(modality => XRAY_MODALITIES.has(modality))) return 'xray';
+    return 'custom';
+}
+
+function collectAvailableExportTags(rows) {
+    const allTags = new Set(rows.flatMap(row => Object.keys(row || {})));
+    return new Set([...allTags].filter(tag => !NON_EXPORTABLE_TAGS.has(tag) &&
+        rows.some(row => hasExportValue(row && row[tag]))));
+}
+
+function getRelevantCtSelectionTags(rows) {
+    const modes = new Set(rows.map(row => String(row.SliceSelectionMode ?? '').trim().toLowerCase()));
+    const tags = [...CT_BASE_SELECTION_TAGS];
+    if (modes.has('exact') || modes.has('nearest')) tags.push(...EXACT_SELECTION_TAGS);
+    if (modes.has('nearest')) tags.push(...NEAREST_SELECTION_TAGS);
+    return tags;
+}
+
+function getRequiredExportTags(mode, presetName, rows) {
+    const required = mode === 'line-batch' ? [...LINE_REQUIRED_EXPORT_TAGS] : [...ROI_REQUIRED_EXPORT_TAGS];
+    if (presetName === 'ct') required.push(...getRelevantCtSelectionTags(rows));
+    return orderExportTags(required.filter(tag => state.availableTags.has(tag)));
 }
 
 function getExportPresetTags(presetName) {
-    const preset = EXPORT_TAG_PRESETS[presetName] || DEFAULT_ROI_EXPORT_TAGS;
-    return [...new Set([...preset, ...AnalysisCore.ACQUISITION_FIELDS, ...AnalysisCore.SELECTION_FIELDS,
-        'SeriesNumber', 'ROI_TransferMode'])].filter(tag => state.availableTags.has(tag) && !NON_EXPORTABLE_TAGS.has(tag));
+    const preset = EXPORT_TAG_PRESETS[presetName] || [];
+    return orderExportTags([...preset, ...state.requiredExportTags])
+        .filter(tag => state.availableTags.has(tag));
+}
+
+function getInitialExportTags(presetName) {
+    if (presetName === 'ct' || presetName === 'xray') return getExportPresetTags(presetName);
+    return orderExportTags([...state.requiredExportTags, 'PatientName', 'PatientID', 'AcquisitionTime'])
+        .filter(tag => state.availableTags.has(tag));
+}
+
+function exportTagSetsMatch(left, right) {
+    return left.size === right.length && right.every(tag => left.has(tag));
+}
+
+function persistExportSelection() {
+    if (state.exportProfileKey) state.exportSelections.set(state.exportProfileKey, new Set(state.selectedTags));
 }
 
 function updateExportPresetUI(presetName) {
@@ -3429,48 +3500,84 @@ function updateExportPresetUI(presetName) {
     const hint = document.getElementById('tagPresetHint');
     if (!hint) return;
     const hints = {
-        ct: 'CT：kVp、mA、ms、mAs、厚度與重建資訊',
-        xray: 'X 光：kVp、mAs、EI／DI 與投照資訊',
-        research: '研究完整：Water phantom 標準欄位',
-        custom: '自訂欄位'
+        ct: 'CT：kVp、mA、ms、mAs、厚度、VMI 與重建資訊',
+        xray: 'X 光：kVp、mAs、EI／DI、部位、方向、側別與 SID',
+        custom: '自訂：依目前結果保留必備欄位'
     };
     hint.textContent = hints[presetName] || hints.custom;
 }
 
+function syncExportTagCheckboxes() {
+    elements.tagList.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = state.selectedTags.has(checkbox.dataset.tag);
+    });
+}
+
+function updateIdentityExportWarning() {
+    if (!elements.tagPrivacyWarning || !elements.removeIdentityTags) return;
+    const selected = state.selectedTags.has('PatientName') || state.selectedTags.has('PatientID');
+    elements.tagPrivacyWarning.classList.toggle('identity-removed', !selected);
+    elements.removeIdentityTags.disabled = !selected;
+}
+
+function renderFixedExportFields() {
+    if (!elements.fixedExportFieldList) return;
+    const structural = state.exportMode === 'line-batch'
+        ? ['Line', 'Index', 'X', 'Y', 'Distance px', 'Distance mm', 'FileName']
+        : [];
+    elements.fixedExportFieldList.replaceChildren();
+    [...structural, ...orderExportTags(state.requiredExportTags)].forEach(tag => {
+        const item = document.createElement('span');
+        item.className = 'fixed-export-field';
+        item.textContent = TAG_TRANSLATIONS[tag] || tag;
+        elements.fixedExportFieldList.appendChild(item);
+    });
+}
+
 function applyExportTagPreset(presetName) {
+    if (!EXPORT_TAG_PRESETS[presetName]) return;
     const presetTags = getExportPresetTags(presetName);
     state.selectedTags = new Set(presetTags);
-    elements.tagList.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-        const tag = checkbox.id.replace('tag-', '');
-        checkbox.checked = state.selectedTags.has(tag);
-    });
+    state.exportPresetName = presetName;
+    syncExportTagCheckboxes();
+    persistExportSelection();
+    updateIdentityExportWarning();
     updateExportPresetUI(presetName);
 }
 
-function openTagModal(mode = 'batch') {
+function openTagModal(mode = 'batch', lineSelection = null) {
     if (ROIWorkflow.running()) return;
-    if (mode !== 'line-batch') {
+    let rows;
+    if (mode === 'line-batch') {
+        if (!lineSelection) return;
+        state.lineExportSelection = lineSelection;
+        rows = buildLineExportRows(lineSelection);
+    } else {
         if (!ROIWorkflow.canExport()) { showToast('目前沒有有效結果，請重新分析', 'warning'); return; }
-        state.availableTags = new Set(Object.keys(state.results[0] || {}));
+        rows = state.results;
     }
     state.exportMode = mode;
-    // Build tag list
+    state.exportRows = rows;
+    state.availableTags = collectAvailableExportTags(rows);
+    if (mode === 'line-batch') state.availableTags.delete('FileName');
+    const detectedPresetName = classifyExportRows(rows);
+    state.requiredExportTags = new Set(getRequiredExportTags(mode, detectedPresetName, rows));
+    state.exportProfileKey = `${mode === 'line-batch' ? 'line' : 'roi'}:${detectedPresetName}`;
+
+    const savedSelection = state.exportSelections.get(state.exportProfileKey);
+    state.selectedTags = new Set(savedSelection
+        ? [...savedSelection].filter(tag => state.availableTags.has(tag) && !NON_EXPORTABLE_TAGS.has(tag))
+        : getInitialExportTags(detectedPresetName));
+    state.requiredExportTags.forEach(tag => state.selectedTags.add(tag));
+
+    const detectedPresetTags = getExportPresetTags(detectedPresetName);
+    state.exportPresetName = detectedPresetName !== 'custom' && exportTagSetsMatch(state.selectedTags, detectedPresetTags)
+        ? detectedPresetName : 'custom';
+
     const tagList = elements.tagList;
-    tagList.innerHTML = '';
-
-    // Select a modality-aware default while retaining manual checkbox control.
-    const defaultPresetName = getDefaultExportPresetName();
-    const presetTags = getExportPresetTags(defaultPresetName);
-    state.selectedTags = new Set(presetTags);
-
-    const sortedTags = Array.from(state.availableTags)
-        .filter(tag => !NON_EXPORTABLE_TAGS.has(tag))
-        .sort((a, b) => {
-        // Sort by translation if available, otherwise by tag name
-        const aName = TAG_TRANSLATIONS[a] || a;
-        const bName = TAG_TRANSLATIONS[b] || b;
-        return aName.localeCompare(bName, 'zh-TW');
-        });
+    tagList.replaceChildren();
+    const sortedTags = orderExportTags([...state.availableTags])
+        .filter(tag => !state.requiredExportTags.has(tag));
 
     for (const tag of sortedTags) {
         const item = document.createElement('div');
@@ -3479,6 +3586,7 @@ function openTagModal(mode = 'batch') {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.id = `tag-${tag}`;
+        checkbox.dataset.tag = tag;
         checkbox.checked = state.selectedTags.has(tag);
         checkbox.addEventListener('change', () => {
             if (checkbox.checked) {
@@ -3486,6 +3594,9 @@ function openTagModal(mode = 'batch') {
             } else {
                 state.selectedTags.delete(tag);
             }
+            state.exportPresetName = 'custom';
+            persistExportSelection();
+            updateIdentityExportWarning();
             updateExportPresetUI('custom');
         });
 
@@ -3499,12 +3610,16 @@ function openTagModal(mode = 'batch') {
         tagList.appendChild(item);
     }
 
-    updateExportPresetUI(defaultPresetName);
+    renderFixedExportFields();
+    updateIdentityExportWarning();
+    updateExportPresetUI(state.exportPresetName);
     showModal('tagModal');
 }
 
 function openBatchLineTagModal() {
-    if (ROIWorkflow.running() || !ROIWorkflow.selectLineFiles()) return;
+    if (ROIWorkflow.running()) return;
+    const selection = ROIWorkflow.selectLineFiles();
+    if (!selection) return;
     if (state.files.length === 0) {
         showToast('⚠️ 尚未載入影像 / No images loaded', 'warning');
         return;
@@ -3514,22 +3629,34 @@ function openBatchLineTagModal() {
         return;
     }
 
-    // Reuse the same tag modal, but limit to DICOM tags for batch line export.
-    state.availableTags = new Set(COMMON_TAGS.map(t => t.name));
-    openTagModal('line-batch');
+    openTagModal('line-batch', selection);
 }
 
 function toggleAllTags(select) {
     const checkboxes = elements.tagList.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => {
         cb.checked = select;
-        const tag = cb.id.replace('tag-', '');
+        const tag = cb.dataset.tag;
         if (select) {
             state.selectedTags.add(tag);
         } else {
             state.selectedTags.delete(tag);
         }
     });
+    state.requiredExportTags.forEach(tag => state.selectedTags.add(tag));
+    state.exportPresetName = 'custom';
+    persistExportSelection();
+    updateIdentityExportWarning();
+    updateExportPresetUI('custom');
+}
+
+function removeIdentityExportTags() {
+    state.selectedTags.delete('PatientName');
+    state.selectedTags.delete('PatientID');
+    state.exportPresetName = 'custom';
+    syncExportTagCheckboxes();
+    persistExportSelection();
+    updateIdentityExportWarning();
     updateExportPresetUI('custom');
 }
 
@@ -3542,9 +3669,8 @@ function exportCSV() {
         return;
     }
 
-    const selectedTagsArray = Array.from(new Set([...state.selectedTags, ...AnalysisCore.SELECTION_FIELDS,
-        'SeriesNumber', 'ROI_TransferMode']))
-        .filter(tag => !NON_EXPORTABLE_TAGS.has(tag));
+    const selectedTagsArray = orderExportTags([...state.selectedTags, ...state.requiredExportTags])
+        .filter(tag => state.availableTags.has(tag));
 
     // Build CSV content
     let csv = selectedTagsArray.join(',') + '\n';
@@ -4563,7 +4689,7 @@ function exportLineProfileToCSV() {
  */
 function exportBatchLineProfileToCSV(selectedDicomTags = null) {
     if (ROIWorkflow.running()) return;
-    const selection = ROIWorkflow.selectLineFiles();
+    const selection = state.lineExportSelection || ROIWorkflow.selectLineFiles();
     if (!selection) return;
     const sourceCols = state.imageCols, sourceRows = state.imageRows;
     const sourceSpacing = state.pixelSpacing ? state.pixelSpacing.slice() : null;
@@ -4673,30 +4799,7 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
             ];
 
             sortedFiles.forEach(f => {
-                const sliceLoc = getDicomSliceLocationValue(f.dataSet);
-                const seriesNum = f.dataSet.string('x00200011');
-                const seriesDesc = f.dataSet.string('x0008103e');
                 let colHeader = f.file.name;
-                // Include series identity so same filenames across series stay distinguishable
-                // 欄位標註系列編號與描述，多系列批次時才分得出 132 個 I10 各屬哪個協議
-                const tagParts = [];
-                if (seriesNum !== undefined && seriesNum !== '') {
-                    tagParts.push(`S${seriesNum}`);
-                }
-                if (seriesDesc !== undefined && seriesDesc !== '') {
-                    tagParts.push(seriesDesc);
-                }
-                if (sliceLoc !== undefined && sliceLoc !== '') {
-                    tagParts.push(`Loc: ${parseFloat(sliceLoc).toFixed(2)}`);
-                } else {
-                    const instNum = f.dataSet.string('x00200013');
-                    if (instNum !== undefined && instNum !== '') {
-                        tagParts.push(`Inst: ${instNum}`);
-                    }
-                }
-                if (tagParts.length > 0) {
-                    colHeader += ` (${tagParts.join(' | ')})`;
-                }
 
                 if (colHeader.includes(',') || colHeader.includes('"')) {
                     colHeader = `"${colHeader.replace(/\"/g, '""')}"`;
@@ -4706,8 +4809,8 @@ function exportBatchLineProfileToCSV(selectedDicomTags = null) {
             csvContent += headers.join(',') + '\r\n';
 
     // Optional metadata rows for user-selected DICOM tags / 依使用者勾選附加 DICOM tag 資訊列
-    const exportableDicomTags = [...new Set([...(selectedDicomTags || []), ...AnalysisCore.SELECTION_FIELDS,
-        ...AnalysisCore.ACQUISITION_FIELDS])].filter(tagName => !NON_EXPORTABLE_TAGS.has(tagName));
+    const exportableDicomTags = orderExportTags(selectedDicomTags || [])
+        .filter(tagName => state.availableTags.has(tagName) && !NON_EXPORTABLE_TAGS.has(tagName));
     if (exportableDicomTags.length > 0) {
         exportableDicomTags.forEach(tagName => {
                     const tagValues = sortedFiles.map(f => {

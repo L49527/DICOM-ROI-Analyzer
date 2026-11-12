@@ -385,8 +385,6 @@ const elements = {
     seriesImportSummary: null,
     seriesFilterInput: null,
     seriesList: null,
-    seriesNavList: null,
-    seriesNavCount: null,
     crossSeriesRoiToggle: null,
     crossSeriesRoiMode: null,
     crossSeriesRoiStatus: null,
@@ -402,9 +400,6 @@ const elements = {
     viewerWwlStatus: null,
     viewerCursorStatus: null,
     viewerProcessingStatus: null,
-    inspectorTabs: null,
-    inspectorPanels: null,
-    toolModeStatus: null,
     toolModeSummary: null,
 
     // Overlays
@@ -578,8 +573,6 @@ function populateElements() {
     elements.seriesImportSummary = document.getElementById('seriesImportSummary');
     elements.seriesFilterInput = document.getElementById('seriesFilterInput');
     elements.seriesList = document.getElementById('seriesList');
-    elements.seriesNavList = document.getElementById('seriesNavList');
-    elements.seriesNavCount = document.getElementById('seriesNavCount');
  elements.viewerPanel = document.getElementById('viewerPanel');
  elements.imageContainer = document.getElementById('imageContainer');
  elements.canvasEmptyState = document.getElementById('canvasEmptyState');
@@ -589,9 +582,6 @@ function populateElements() {
     elements.viewerWwlStatus = document.getElementById('viewerWwlStatus');
     elements.viewerCursorStatus = document.getElementById('viewerCursorStatus');
     elements.viewerProcessingStatus = document.getElementById('viewerProcessingStatus');
-    elements.inspectorTabs = document.querySelectorAll('[data-inspector-tab]');
-    elements.inspectorPanels = document.querySelectorAll('[data-inspector-panel]');
-    elements.toolModeStatus = document.getElementById('toolModeStatus');
     elements.toolModeSummary = document.getElementById('toolModeSummary');
     elements.patientInfo = document.getElementById('patientInfo');
     elements.wwwlInfo = document.getElementById('wwwlInfo');
@@ -795,31 +785,12 @@ function updateSystemStatus(mode) {
 // Workstation UI (layout-only state)
 // ============================================
 function setInspectorTab(tabName, shouldFocus = false) {
-    if (typeof WorkstationUI !== 'undefined' && WorkstationUI.mounted()) {
-        WorkstationUI.showPanel(tabName, shouldFocus);
-        return;
-    }
-    const tabs = Array.from(elements.inspectorTabs || document.querySelectorAll('[data-inspector-tab]'));
-    const panels = Array.from(elements.inspectorPanels || document.querySelectorAll('[data-inspector-panel]'));
-    const selectedTab = tabs.find(tab => tab.dataset.inspectorTab === tabName) || tabs[0];
-    if (!selectedTab) return;
-
-    const selectedName = selectedTab.dataset.inspectorTab;
-    tabs.forEach(tab => {
-        const isSelected = tab === selectedTab;
-        tab.setAttribute('aria-selected', String(isSelected));
-        tab.tabIndex = isSelected ? 0 : -1;
-        tab.classList.toggle('is-active', isSelected);
-    });
-    panels.forEach(panel => {
-        panel.hidden = panel.dataset.inspectorPanel !== selectedName;
-    });
-    if (shouldFocus) selectedTab.focus();
+    // View settings open a dialog; ROI and analysis panels are always visible in the dock.
+    WorkstationUI.showPanel(tabName, shouldFocus);
 }
 
 function updateToolModeUi() {
     const mode = state.toolMode === 'line' ? '線段模式' : 'ROI 模式';
-    if (elements.toolModeStatus) elements.toolModeStatus.textContent = mode;
     if (elements.toolModeSummary) elements.toolModeSummary.textContent = mode.replace(' 模式', '');
     const heading = document.getElementById('workMeasureTitle');
     if (heading) heading.textContent = state.toolMode === 'line' ? '線段剖面' : 'ROI 清單';
@@ -895,59 +866,7 @@ function updateWorkstationCursor(e) {
     if (coords) elements.viewerCursorStatus.textContent = `座標 ${coords.x}, ${coords.y}`;
 }
 
-function renderWorkstationSeriesNav() {
-    const nav = elements.seriesNavList;
-    if (!nav) return;
-    const seriesValues = Array.from(state.seriesMap.values()).sort((a, b) => {
-        const aNumber = Number(a.seriesNumber);
-        const bNumber = Number(b.seriesNumber);
-        if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber;
-        return getSeriesDisplayName(a).localeCompare(getSeriesDisplayName(b));
-    });
-    if (elements.seriesNavCount) elements.seriesNavCount.textContent = `${seriesValues.length} Series`;
-    if (seriesValues.length === 0) {
-        nav.innerHTML = '<div id="seriesNavEmpty" class="series-list-empty">載入影像後顯示 Series</div>';
-        return;
-    }
-    nav.innerHTML = seriesValues.map(series => {
-        const isActive = series.key === state.activeSeriesKey;
-        const metadata = [
-            series.seriesNumber ? `#${series.seriesNumber}` : '',
-            series.modality || '',
-            `${series.files.length} 張`,
-            series.rows && series.columns ? `${series.rows}×${series.columns}` : ''
-        ].filter(Boolean);
-        const warningLabel = series.warnings && series.warnings.length ? '需注意' : '可分析';
-        return `<button type="button" class="series-nav-item${isActive ? ' is-active' : ''}" data-workstation-series-key="${encodeURIComponent(series.key)}" aria-pressed="${isActive}" title="${escapeSeriesHtml(getSeriesDisplayName(series))}">
-            <span class="series-nav-item-title"><span>${escapeSeriesHtml(getSeriesDisplayName(series))}</span><small>${warningLabel}</small></span>
-            <span class="series-nav-item-meta">${metadata.map(value => `<span>${escapeSeriesHtml(value)}</span>`).join('')}</span>
-        </button>`;
-    }).join('');
-}
-
 function initWorkstationUi() {
-    const tabs = Array.from(elements.inspectorTabs || []);
-    tabs.forEach((tab, index) => {
-        tab.addEventListener('click', () => setInspectorTab(tab.dataset.inspectorTab));
-        tab.addEventListener('keydown', event => {
-            if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-            event.preventDefault();
-            let nextIndex = index;
-            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % tabs.length;
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + tabs.length) % tabs.length;
-            if (event.key === 'Home') nextIndex = 0;
-            if (event.key === 'End') nextIndex = tabs.length - 1;
-            setInspectorTab(tabs[nextIndex].dataset.inspectorTab, true);
-        });
-    });
-    setInspectorTab('measure');
-
-    safeAddListener(elements.seriesNavList, 'click', event => {
-        const item = event.target.closest('[data-workstation-series-key]');
-        if (!item) return;
-        activateSeries(decodeURIComponent(item.dataset.workstationSeriesKey));
-    });
-
     if (elements.toolModeRadios) {
         elements.toolModeRadios.forEach(radio => radio.addEventListener('change', () => {
             updateToolModeUi();
@@ -989,7 +908,6 @@ function init() {
     setupEventListeners();
     ROIWorkflow.init();
     WorkstationUI.init();
-    console.log('DICOM ROI Analyzer initialized (Robust Mode)');
 }
 
 function setupEventListeners() {
@@ -2106,7 +2024,6 @@ function getSeriesDisplayName(series) {
 }
 
 function renderSeriesManagerList() {
-    renderWorkstationSeriesNav();
     if (!elements.seriesList) return;
     const query = (elements.seriesFilterInput && elements.seriesFilterInput.value || '').trim().toLowerCase();
     const seriesList = Array.from(state.seriesMap.values())
@@ -2156,7 +2073,7 @@ function renderSeriesManagerList() {
         const visibleWarnings = series.warnings.slice(0, 3);
         const remainingWarnings = series.warnings.length - visibleWarnings.length;
         const warningText = visibleWarnings.length
-            ? `⚠️ ${visibleWarnings.map(escapeSeriesHtml).join('；')}` +
+            ? `${visibleWarnings.map(escapeSeriesHtml).join('；')}` +
                 (remainingWarnings > 0 ? `；另有 ${remainingWarnings} 項` : '')
             : '';
 
@@ -2172,7 +2089,7 @@ function renderSeriesManagerList() {
                     <div class="series-item-meta">
                         ${meta.map(value => `<span>${escapeSeriesHtml(value)}</span>`).join('')}
                     </div>
-                    ${warningText ? `<div class="series-item-warnings">${warningText}</div>` : ''}
+                    ${warningText ? `<div class="series-item-warnings"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${warningText}</div>` : ''}
                 </div>
                 <div class="series-item-actions">
                     <button class="btn btn-primary btn-sm" data-series-key="${encodeURIComponent(series.key)}" ${isActive ? 'disabled' : ''}>
@@ -2198,7 +2115,7 @@ function updateActiveSeriesCard() {
     elements.activeSeriesSummary.innerHTML = `
         <div class="active-series-title">${escapeSeriesHtml(getSeriesDisplayName(series))}</div>
         <div class="active-series-meta">${escapeSeriesHtml(meta)}</div>
-        ${series.warnings.length ? `<div class="series-item-warnings">⚠️ ${series.warnings.length} 項需注意</div>` : ''}`;
+        ${series.warnings.length ? `<div class="series-item-warnings"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${series.warnings.length} 項需注意</div>` : ''}`;
 }
 
 function openSeriesManager() {
@@ -2335,10 +2252,6 @@ async function loadDICOMFiles(files) {
                     console.error(`Error parsing file ${file.name}:`, err);
                     if (err.message && err.message.includes('preamble')) {
                         console.warn(`File ${file.name} is missing DICOM preamble.`);
-                    }
-                    if (byteArray) {
-                        const headBytes = byteArray.slice(0, 132);
-                        console.log(`File head snippet:`, headBytes);
                     }
                 }
                 return null;
@@ -2490,11 +2403,9 @@ function loadImage(index) {
     // Set UI for modality
     const modality = state.currentDS.string('x00080060') || 'OT';
     if (elements.ctPresetsContainer) {
-        if (modality === 'CT') {
-            elements.ctPresetsContainer.style.display = 'grid';
-        } else {
-            elements.ctPresetsContainer.style.display = 'none';
-        }
+        // CT presets (HU) are meaningless for X-ray/MR; hide the whole group, label included.
+        const group = elements.ctPresetsContainer.closest('.toolbar-presets-group') || elements.ctPresetsContainer;
+        group.hidden = modality !== 'CT';
     }
 
     // Check if we have stored rotation for this image
@@ -2566,10 +2477,13 @@ function renderImage() {
     const data = imageData.data;
 
     const scale = 255 / ww;
+    // MONOCHROME1: minimum value is white. Invert display only; ROI values stay unchanged.
+    const invert = getDicomString(state.currentDS, 'x00280004').toUpperCase() === 'MONOCHROME1';
 
     for (let i = 0; i < state.pixelData.length; i++) {
-        const value = (state.pixelData[i] - lower) * scale;
-        
+        const mapped = (state.pixelData[i] - lower) * scale;
+        const value = invert ? 255 - mapped : mapped;
+
         const idx = i * 4;
         data[idx] = value;
         data[idx + 1] = value;
@@ -3231,7 +3145,7 @@ function toggleFullscreen() {
 
     if (!document.fullscreenElement) {
         container.requestFullscreen().catch(err => {
-            console.log('Fullscreen error:', err);
+            console.warn('Fullscreen error:', err);
         });
     } else {
         document.exitFullscreen();
@@ -3752,7 +3666,15 @@ function showToast(message, type = 'info', duration = 4000) {
 
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.textContent = message;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    // One icon family: replace leading emoji with a Font Awesome glyph chosen by tone.
+    const icons = { success: 'fa-circle-check', warning: 'fa-triangle-exclamation', error: 'fa-circle-xmark', info: 'fa-circle-info' };
+    const glyph = document.createElement('i');
+    glyph.className = `fa-solid ${icons[type] || icons.info}`;
+    glyph.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.textContent = String(message).replace(/^[\p{Extended_Pictographic}️‍\s]+/u, '');
+    toast.append(glyph, ' ', text);
 
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('toast-show'));
@@ -3895,7 +3817,7 @@ function updateCustomTagsOverlay() {
                 value = '--';
             }
             const displayName = TAG_TRANSLATIONS[tag] || tag;
-            lines.push(`<span class="tag-label">${displayName}:</span> <span class="tag-value">${value}</span>`);
+            lines.push(`<span class="tag-label">${escapeSeriesHtml(displayName)}:</span> <span class="tag-value">${escapeSeriesHtml(value)}</span>`);
         }
     }
 
@@ -3991,10 +3913,10 @@ function renderRawHeaderTable(tags) {
     if (!elements.rawHeaderTableBody) return;
     elements.rawHeaderTableBody.innerHTML = tags.map(t => {
         return `<tr>
-            <td style="font-family: monospace; font-size: 0.85rem;">${t.tag}</td>
-            <td style="font-size: 0.85rem;">${t.name}</td>
-            <td style="font-size: 0.85rem; color: var(--text-muted);">${t.vr}</td>
-            <td style="font-family: monospace; font-size: 0.85rem; word-break: break-all;">${t.value}</td>
+            <td class="raw-tag-id">${escapeSeriesHtml(t.tag)}</td>
+            <td class="raw-tag-name">${escapeSeriesHtml(t.name)}</td>
+            <td class="raw-tag-vr">${escapeSeriesHtml(t.vr)}</td>
+            <td class="raw-tag-value">${escapeSeriesHtml(t.value)}</td>
         </tr>`;
     }).join('');
 }
@@ -4091,7 +4013,7 @@ function updateLineUI() {
 
     // Keep multi-line dropdown and button states in sync.
     if (elements.activeLineSelect) {
-        elements.activeLineSelect.innerHTML = '<option value="">-- 無線段 / No Line --</option>';
+        elements.activeLineSelect.innerHTML = '<option value="">-- 無線段 --</option>';
         state.lines.forEach((line, index) => {
             const option = document.createElement('option');
             option.value = String(index);

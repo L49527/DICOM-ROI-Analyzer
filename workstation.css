@@ -195,7 +195,14 @@
     .work-context { order: 3; flex-basis: 100%; }
     .precision-workstation .active-series-meta { white-space: normal; font-size: 11px; }
     .work-dock { grid-template-columns: 1fr; }
-    .work-dock > section { max-height: none; overflow: visible; }
+    .work-dock { min-height: 0; align-content: start; }
+    .work-dock > section { max-height: none; min-height: auto; overflow: visible; }
+    .precision-workstation .work-roi-heading { flex-wrap: wrap; row-gap: 8px; }
+    .precision-workstation .work-roi-heading .work-roi-sizes { flex: 1 1 100%; }
+    .precision-workstation .work-roi-sizes .control-group { flex: 1 1 0; min-width: 0; }
+    .precision-workstation .work-roi-sizes input { width: 100%; min-width: 0; }
+    .precision-workstation .image-overlay { font-size: 10px; }
+    .precision-workstation #viewerWwlStatus { display: none; }
     .precision-workstation .work-roi-sizes .control-group { display: flex; }
     .work-run-actions { gap: 5px; justify-content: flex-end; }
     #workActionBar { flex-wrap: wrap; padding: 8px; gap: 6px; }
@@ -206,6 +213,13 @@
     .precision-workstation #workViewDialog #inspector-panel-view { grid-template-columns: 1fr; }
     .work-dialog { width: calc(100vw - 16px); max-height: 92dvh; }
 }
+/* DICOM tag overlay: compact, below the patient block so it does not cover the image centre. */
+.precision-workstation .overlay-custom-tags { top: 64px; transform: none; font-size: 12px; font-weight: 500; line-height: 1.6; padding: 6px 10px; max-width: min(360px, 45%); border-left-width: 3px; background: rgba(0, 0, 0, 0.6); z-index: 5; }
+/* Raw DICOM header table */
+#rawHeaderTableBody td { font-size: 0.85rem; }
+#rawHeaderTableBody .raw-tag-id, #rawHeaderTableBody .raw-tag-value { font-family: monospace; }
+#rawHeaderTableBody .raw-tag-vr { color: var(--text-muted); }
+#rawHeaderTableBody .raw-tag-value { word-break: break-all; }
 @media (prefers-reduced-motion: reduce) {
     .precision-workstation *, .precision-workstation *::before, .precision-workstation *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

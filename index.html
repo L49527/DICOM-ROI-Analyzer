@@ -14,7 +14,8 @@
     <link rel="stylesheet" href="workstation.css">
 </head>
 
-<body>
+<body class="precision-workstation">
+    <!-- Static workstation layout (formerly assembled at runtime by WorkstationUI.mount). -->
     <div class="app-container">
         <!-- Header -->
         <header class="header">
@@ -25,7 +26,13 @@
                     <span class="logo-subtitle">Medical Imaging Analysis System</span>
                 </div>
             </div>
-            <div class="header-controls">
+            <div class="work-context"><button id="openSeriesManagerBtn" class="btn btn-ghost btn-sm" title="開啟 Series 管理器" aria-haspopup="dialog"><i class="fa-solid fa-list" aria-hidden="true"></i> Series</button><section id="activeSeriesCard" class="sidebar-section active-series-card hidden" aria-labelledby="activeSeriesHeading">
+                        <div class="sidebar-section-heading" id="activeSeriesHeading">
+                            <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+                            <span>目前 Series</span>
+                        </div>
+                        <div id="activeSeriesSummary" class="active-series-summary"></div>
+                    </section></div><div class="header-controls"><span class="work-local">本機處理</span>
                 <span class="status-indicator status-ready">System Ready</span>
                 <button id="themeToggleBtn" class="btn btn-ghost icon-button" title="切換深/淺色模式" aria-label="切換深/淺色模式">
                     <i id="themeIcon" class="fa-solid fa-moon" aria-hidden="true"></i>
@@ -44,8 +51,8 @@
                     <div class="drop-icon"><i class="fa-solid fa-x-ray"></i></div>
                     <h2>拖曳 DICOM 資料夾到此處</h2>
                     <p>支援批次分析多張醫學影像</p>
-                    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
-                    <input type="file" id="filesInput" multiple hidden>
+                    <input type="file" id="folderInput" webkitdirectory="" directory="" multiple="" hidden="">
+                    <input type="file" id="filesInput" multiple="" hidden="">
                     <div class="upload-buttons" style="display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 15px; flex-wrap: wrap;">
                         <button id="selectFolderBtn" class="btn btn-primary"><i class="fa-solid fa-folder-open"></i> 選擇資料夾</button>
                         <button id="selectFilesBtn" class="btn btn-secondary"><i class="fa-solid fa-file-medical"></i> 選擇複數檔案</button>
@@ -53,7 +60,7 @@
                     <div class="append-mode-panel" style="display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 15px; background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); width: fit-content; margin-left: auto; margin-right: auto;">
                         <input type="checkbox" id="appendModeToggle" style="width: 16px; height: 16px; cursor: pointer;">
                         <label for="appendModeToggle" style="cursor: pointer; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); user-select: none;">
-                            累加載入模式 (Append Mode)
+                            累加載入模式
                         </label>
                     </div>
                     <div class="medical-badge"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 本機處理｜資料不離開此裝置</div>
@@ -62,83 +69,10 @@
 
             <!-- WorkstationUI mounts these existing controls into the image-first layout. -->
  <div id="viewerPanel" class="viewer-panel">
-                <aside class="series-sidebar" aria-label="Series 與切片導覽">
-                    <div class="sidebar-title-row">
-                        <div>
-                            <span class="eyebrow">WORKLIST</span>
-                            <h2><i class="fa-solid fa-list-ul" aria-hidden="true"></i> 影像導覽</h2>
-                        </div>
-                        <span id="seriesNavCount" class="sidebar-count">0 Series</span>
-                    </div>
-
-                    <section class="sidebar-section sidebar-load-section" aria-labelledby="sidebarLoadHeading">
-                        <div class="sidebar-section-heading" id="sidebarLoadHeading">
-                            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
-                            <span>載入資料</span>
-                        </div>
-                        <div class="append-mode-container">
-                            <input type="checkbox" id="sidebarAppendModeToggle">
-                            <label for="sidebarAppendModeToggle">累加載入模式</label>
-                        </div>
-                        <div class="sidebar-load-actions">
-                            <button id="sidebarSelectFolderBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> 資料夾</button>
-                            <button id="sidebarSelectFilesBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-file-medical" aria-hidden="true"></i> 檔案</button>
-                        </div>
-                    </section>
-
-                    <section id="activeSeriesCard" class="sidebar-section active-series-card hidden" aria-labelledby="activeSeriesHeading">
-                        <div class="sidebar-section-heading" id="activeSeriesHeading">
-                            <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
-                            <span>目前 Series</span>
-                        </div>
-                        <div id="activeSeriesSummary" class="active-series-summary"></div>
-                    </section>
-
-                    <section class="sidebar-section series-browser" aria-labelledby="seriesBrowserHeading">
-                        <div class="sidebar-section-heading series-browser-heading" id="seriesBrowserHeading">
-                            <span><i class="fa-solid fa-bars-staggered" aria-hidden="true"></i> Series 清單</span>
-                            <button id="openSeriesManagerBtn" class="btn btn-ghost btn-sm" title="開啟 Series 管理器">管理</button>
-                        </div>
-                        <div id="seriesNavList" class="series-nav-list" role="list" aria-live="polite">
-                            <div id="seriesNavEmpty" class="series-list-empty">載入影像後顯示 Series</div>
-                        </div>
-                    </section>
-
-                </aside>
+                
 
                 <section class="image-section workstation-canvas-column" aria-label="DICOM 影像畫布">
-                    <div class="canvas-toolbar" role="toolbar" aria-label="影像快速工具">
-                        <div class="toolbar-group toolbar-mode-group">
-                            <span class="toolbar-label">量測工具</span>
-                            <div class="tool-mode-switch" role="group" aria-label="選擇量測工具">
-                                <label class="tool-mode-option" title="點擊影像放置 ROI">
-                                    <input type="radio" name="toolMode" value="roi" checked>
-                                    <span><i class="fa-solid fa-bullseye" aria-hidden="true"></i> ROI</span>
-                                </label>
-                                <label class="tool-mode-option" title="拖曳影像繪製線段剖面">
-                                    <input type="radio" name="toolMode" value="line">
-                                    <span><i class="fa-solid fa-ruler" aria-hidden="true"></i> 線段</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="toolbar-group toolbar-presets-group">
-                            <span class="toolbar-label">常用窗位</span>
-                            <div id="ctPresetsContainer" class="preset-buttons toolbar-presets" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));">
-                                <button id="presetLungBtn" class="btn btn-secondary btn-sm" title="Lung (W:1500 L:-600)"><i class="fa-solid fa-lungs" aria-hidden="true"></i><span>肺部</span></button>
-                                <button id="presetBrainBtn" class="btn btn-secondary btn-sm" title="Brain (W:80 L:40)"><i class="fa-solid fa-brain" aria-hidden="true"></i><span>腦部</span></button>
-                                <button id="presetBoneBtn" class="btn btn-secondary btn-sm" title="Bone (W:2000 L:300)"><i class="fa-solid fa-bone" aria-hidden="true"></i><span>骨骼</span></button>
-                                <button id="presetAbdBtn" class="btn btn-secondary btn-sm" title="Abdomen (W:400 L:50)"><i class="fa-solid fa-person" aria-hidden="true"></i><span>腹部</span></button>
-                            </div>
-                        </div>
-                        <div class="toolbar-group toolbar-zoom-group">
-                            <span class="toolbar-label">縮放</span>
-                            <div class="zoom-buttons">
-                                <button id="zoomOutBtn" class="btn btn-secondary btn-sm" title="縮小"><i class="fa-solid fa-minus" aria-hidden="true"></i><span class="sr-only">縮小</span></button>
-                                <button id="zoomResetBtn" class="btn btn-secondary btn-sm" title="重設為 100%">100%</button>
-                                <button id="zoomInBtn" class="btn btn-secondary btn-sm" title="放大"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="sr-only">放大</span></button>
-                            </div>
-                        </div>
-                    </div>
+                    
 
  <div class="image-container" id="imageContainer">
  <div class="image-container-inner" id="imageContainerInner">
@@ -163,49 +97,493 @@
                             <div class="overlay-bottom-right" id="roiInfo"></div>
                             <div class="overlay-custom-tags" id="customTagsOverlay"></div>
                         </div>
-                        <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)" aria-label="全螢幕"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
+                        <button id="fullscreenBtn" class="fullscreen-btn" title="全螢幕 (F)" aria-label="離開全螢幕"><i class="fa-solid fa-expand" aria-hidden="true"></i></button>
                     </div>
 
-                    <div class="viewer-statusbar" role="status" aria-live="polite">
+                    <div class="viewer-statusbar work-aux-status" role="status" aria-live="polite">
                         <span class="viewer-status-item"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><strong id="viewerSliceStatus">切片 -- / --</strong></span>
                         <span class="viewer-status-item"><i class="fa-solid fa-ruler-combined" aria-hidden="true"></i><span id="viewerPixelSpacingStatus">Pixel Spacing --</span></span>
-                        <span class="viewer-status-item"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span id="viewerWwlStatus">WW -- · WL --</span></span>
+                        <span class="viewer-status-item"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>
                         <span class="viewer-status-item"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i><span id="viewerCursorStatus">座標 --</span></span>
                         <span class="viewer-status-item viewer-status-ready" id="viewerProcessingStatus"><i class="fa-solid fa-circle-check" aria-hidden="true"></i><span>Ready</span></span>
                     </div>
 
-                    <nav class="image-nav canvas-slice-nav" aria-label="切片導覽">
+                    
+                <div class="work-viewer-bar"><nav class="image-nav canvas-slice-nav" aria-label="切片導覽">
                         <button id="prevBtn" class="btn btn-icon" title="上一張 (A)" aria-label="上一張"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
                         <div class="image-slider-container">
                             <input type="range" id="imageSlider" min="0" max="0" value="0" aria-label="目前切片">
                             <span id="imageCounter">0 / 0</span>
                         </div>
                         <button id="nextBtn" class="btn btn-icon" title="下一張 (D)" aria-label="下一張"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
-                    </nav>
-                </section>
-
-                <aside class="inspector-panel" aria-label="影像 Inspector">
-                    <div class="inspector-heading">
-                        <div>
-                            <span class="eyebrow">INSPECTOR</span>
-                            <h2><i class="fa-solid fa-sliders" aria-hidden="true"></i> 影像檢查器</h2>
+                    </nav><span id="workSliceLocation" class="work-viewer-info">Loc: --</span><span id="viewerWwlStatus" class="work-viewer-info">WW -- · WL --</span><div class="canvas-toolbar" role="toolbar" aria-label="影像快速工具">
+                        <div class="toolbar-group toolbar-mode-group">
+                            <span class="toolbar-label">量測工具</span>
+                            <div class="tool-mode-switch" role="group" aria-label="選擇量測工具">
+                                <label class="tool-mode-option" title="點擊影像放置 ROI">
+                                    <input type="radio" name="toolMode" value="roi" checked="">
+                                    <span><i class="fa-solid fa-bullseye" aria-hidden="true"></i> ROI</span>
+                                </label>
+                                <label class="tool-mode-option" title="拖曳影像繪製線段剖面">
+                                    <input type="radio" name="toolMode" value="line">
+                                    <span><i class="fa-solid fa-ruler" aria-hidden="true"></i> 線段</span>
+                                </label>
+                            </div>
                         </div>
-                        <span id="toolModeStatus" class="mode-status">ROI 模式</span>
-                    </div>
-                    <div class="inspector-tabs" role="tablist" aria-label="影像檢查器分頁">
-                        <button id="inspectorTabView" class="inspector-tab" type="button" role="tab" data-inspector-tab="view" aria-controls="inspector-panel-view" aria-selected="false" tabindex="-1"><i class="fa-solid fa-eye" aria-hidden="true"></i> 檢視</button>
-                        <button id="inspectorTabMeasure" class="inspector-tab is-active" type="button" role="tab" data-inspector-tab="measure" aria-controls="inspector-panel-measure" aria-selected="true" tabindex="0"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> ROI／線段</button>
-                        <button id="inspectorTabAnalysis" class="inspector-tab" type="button" role="tab" data-inspector-tab="analysis" aria-controls="inspector-panel-analysis" aria-selected="false" tabindex="-1"><i class="fa-solid fa-chart-column" aria-hidden="true"></i> 分析</button>
-                    </div>
+                        
+                        <button id="workViewBtn" type="button" class="btn btn-secondary btn-sm"><i class="fa-solid fa-sliders" aria-hidden="true"></i> 影像設定</button><button id="workFitBtn" type="button" class="btn btn-secondary btn-sm"><i class="fa-solid fa-expand" aria-hidden="true"></i> 符合畫布</button><div class="toolbar-group toolbar-zoom-group">
+                            <span class="toolbar-label">縮放</span>
+                            <div class="zoom-buttons">
+                                <button id="zoomOutBtn" class="btn btn-secondary btn-sm" title="縮小"><i class="fa-solid fa-minus" aria-hidden="true"></i><span class="sr-only">縮小</span></button>
+                                <button id="zoomResetBtn" class="btn btn-secondary btn-sm" title="重設為 100%">100%</button>
+                                <button id="zoomInBtn" class="btn btn-secondary btn-sm" title="放大"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="sr-only">放大</span></button>
+                            </div>
+                        </div>
+                    <button id="workFullscreenBtn" type="button" class="btn btn-secondary btn-sm" aria-label="全螢幕" title="全螢幕 (F)"><i class="fa-solid fa-expand" aria-hidden="true"></i> </button></div></div></section>
 
-                    <div class="inspector-panels">
-                        <section id="inspector-panel-view" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabView" data-inspector-panel="view" hidden>
+                
+            <div id="workSplitter" class="work-splitter"><div id="workResizeHandle" tabindex="0" role="separator" aria-label="調整影像與工具高度" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100"><i class="fa-solid fa-grip" aria-hidden="true"></i></div><button id="workResetLayout" type="button" class="btn btn-secondary btn-sm"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i> 重設布局</button></div><section id="workDock" class="work-dock" aria-label="ROI 與分析工作區"><section id="inspector-panel-measure" class="inspector-panel-content" data-inspector-panel="measure">
+                            <div class="control-card measurement-card"><div id="workRoiHeader" class="work-roi-heading"><h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i><span id="workMeasureTitle">ROI 清單</span></h3><div class="work-roi-sizes"><div class="control-group">
+                                        <label for="roiRadius">半徑</label>
+                                        <div class="input-with-unit">
+                                            <input type="number" id="roiRadius" value="25" min="5" max="200">
+                                            <span>px</span>
+                                        </div>
+                                        
+                                    </div><div class="control-group">
+                                        <label for="roiArea">面積</label>
+                                        <div class="input-with-unit">
+                                            <input type="number" id="roiArea" value="" min="1" step="1">
+                                            <span>mm²</span>
+                                        </div>
+                                        
+                                    </div></div></div>
+                                
+                                <div class="tool-mode-summary" hidden=""><span>目前模式</span><strong id="toolModeSummary">ROI</strong></div>
+
+                                <div id="roiSettingsSection">
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    <div class="control-group" hidden="">
+                                        <label>已放置 ROI</label>
+                                        <div class="roi-count-display"><span id="roiCount">0</span> 個</div>
+                                    </div>
+                                    <div id="roiListContainer" class="roi-list-container"></div>
+                                    
+                                    
+                                    
+                                <details class="work-disclosure" id="workRoiActions"><summary>ROI 操作與說明</summary><button id="deleteSelectedRoiBtn" class="btn btn-secondary btn-sm btn-block" disabled="">刪除選取 ROI</button><div class="roi-buttons">
+                                        <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled=""><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> 刪除上一個 <span class="text-xs">(Ctrl+Z)</span></button>
+                                        <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled=""><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除全部 <span class="text-xs">(Del)</span></button>
+                                    </div><p class="hint">點空白處新增；點 ROI 選取，再拖曳或修改 X／Y。重疊的 ROI 可從清單選取。Backspace 刪除選取項目。</p></details></div>
+
+                                <div id="lineSettingsSection" class="hidden">
+                                    <div class="control-group">
+                                        <label>起點 (S)</label>
+                                        <div class="position-display"><span>X: <strong id="lineStartX">--</strong></span><span>Y: <strong id="lineStartY">--</strong></span></div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label>終點 (E)</label>
+                                        <div class="position-display"><span>X: <strong id="lineEndX">--</strong></span><span>Y: <strong id="lineEndY">--</strong></span></div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label>線段長度</label>
+                                        <div id="lineLengthDisplay" class="measurement-value">-- px</div>
+                                    </div>
+                                    <div class="control-group" id="multiLineContainer">
+                                        <label class="subsection-label"><i class="fa-solid fa-route" aria-hidden="true"></i> 多線段管理</label>
+                                        <select id="activeLineSelect"><option value="">-- 無線段 --</option></select>
+                                        <select id="duplicateDirectionSelect"><option value="left">左側法向</option><option value="right">右側法向</option></select>
+                                        <label for="duplicateDistanceInput" class="compact-label">複製距離</label>
+                                        <div class="input-with-unit"><input type="number" id="duplicateDistanceInput" value="30" min="1" step="1"><span>px</span></div>
+                                        <label class="checkbox-label line-display-toggle"><input id="showAllLinesToggle" type="checkbox" checked=""> 顯示全部線段</label>
+                                        <div class="roi-buttons line-actions">
+                                            <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" disabled="" title="平行偏移複製當前選取的線段"><i class="fa-solid fa-arrows-left-right" aria-hidden="true"></i> 偏移</button>
+                                            <button id="cloneLineBtn" class="btn btn-secondary btn-sm" disabled="" title="原地複製當前選取的線段"><i class="fa-regular fa-copy" aria-hidden="true"></i> 複製</button>
+                                            <button id="deleteLineBtn" class="btn btn-secondary btn-sm" disabled="" title="刪除當前選取的線段"><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 刪除</button>
+                                        </div>
+                                    </div>
+                                    <div class="control-group">
+                                        <label>即時剖面圖</label>
+                                        <canvas id="lineProfileCanvas" width="280" height="150"></canvas>
+                                    </div>
+                                    <div class="roi-buttons">
+                                        <button id="clearLineBtn" class="btn btn-secondary btn-sm" disabled=""><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除線段</button>
+                                        <button id="openLineDetailBtn" class="btn btn-primary btn-sm" disabled=""><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 完整數據</button>
+                                    </div>
+                                    <div class="roi-buttons mt-1"><button id="batchExportLineBtn" class="btn btn-secondary btn-sm btn-block" disabled=""><i class="fa-solid fa-file-export" aria-hidden="true"></i> 批次匯出線段剖面</button></div>
+                                    <p class="hint">左鍵拖曳以繪製量測線段</p>
+                                </div>
+                            </div>
+                        </section><section id="inspector-panel-analysis" class="inspector-panel-content" data-inspector-panel="analysis">
+                            <div class="control-card">
+                                <h3><i class="fa-solid fa-sliders" aria-hidden="true"></i> 分析條件</h3>
+                                <div id="analysisSettings">
+                                    <div class="control-group">
+                                        <label for="analysisScope">1. 分析範圍</label>
+                                        <select id="analysisScope"><option value="current">目前 Series</option><option value="all">全部 Series</option><option value="single">單張影像</option></select>
+                                    </div>
+                                    <div id="singleImageGroup" class="control-group" hidden="">
+                                        <label for="singleImageSelect">選擇影像</label>
+                                        <select id="singleImageSelect"><option value="">-- 選擇影像 --</option></select>
+                                        <p class="hint">切片規則仍會檢查這張影像，不會自動替換。</p>
+                                    </div>
+                                    <div class="control-group">
+                                        <label for="sliceSelectionMode">2. 切片規則</label>
+                                        <select id="sliceSelectionMode"><option value="all">全部切片</option><option value="exact">精確位置</option><option value="nearest">最近切片</option></select>
+                                    </div>
+                                    <div id="sliceLocationFields" hidden="">
+                                        <div class="control-group">
+                                            <label for="sliceLocationFilter">目標 Slice Location（mm）</label>
+                                            <input type="number" id="sliceLocationFilter" step="any" placeholder="例如：0" aria-describedby="sliceRuleHint">
+                                        </div>
+                                        <div id="maxDistanceGroup" class="control-group" hidden="">
+                                            <label for="maxSliceDistance">最大距離（mm）</label>
+                                            <input type="number" id="maxSliceDistance" min="0" step="any" placeholder="請自行設定" aria-describedby="sliceRuleHint">
+                                        </div>
+                                        <p id="sliceRuleHint" class="hint">精確位置：差距 &lt; 0.001 mm。最近切片：只取距離上限內的最近位置；等距時需選擇。</p>
+                                    </div>
+                                    
+                                </div>
+                                <h4 class="subsection-label" hidden="">3. 確認預覽</h4>
+                                <p id="previewCounts" class="analysis-counts work-preview-counts" aria-live="polite"></p>
+                                <p id="analysisValidation" class="analysis-validation" role="status"></p>
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                <p class="hint" hidden="">修改 ROI、來源或切片規則後，請重新分析。取消的結果不能匯出。</p>
+                            <details class="work-disclosure" id="alignmentSettings"><summary>進階與對位</summary><div class="control-group checkbox-group">
+                                        <input type="checkbox" id="crossSeriesRoiToggle" class="checkbox-lg" checked="">
+                                        <label for="crossSeriesRoiToggle" class="checkbox-label">啟用跨 Series ROI</label>
+                                    </div><div class="control-group">
+                                        <label for="crossSeriesRoiMode">ROI 對位方式</label>
+                                        <select id="crossSeriesRoiMode">
+                                            <option value="patient">病人座標（解剖位置）</option>
+                                            <option value="pixel">固定像素座標（跨 Patient）</option>
+                                        </select>
+                                        <p class="hint">固定像素座標會直接套用 ROI 的 X／Y／半徑，適合固定矩陣或跨 Patient protocol 比較；不代表相同解剖位置。</p>
+                                    </div><div id="crossSeriesRoiStatus" class="hint">切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊</div><div id="roiPhysicalInfo" class="hint"></div><div class="hint">輸入面積後自動換算半徑（需 Pixel Spacing）</div></details><button id="workPreviewBtn" type="button" class="btn btn-secondary btn-sm"><i class="fa-solid fa-list-check" aria-hidden="true"></i> 逐 Series 明細</button></div>
+                        </section></section></div>
+        </main>
+
+        <!-- Series Manager Modal -->
+        <div id="seriesManagerModal" class="modal hidden work-series-drawer" role="dialog" aria-modal="true" aria-label="Series 管理器">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large series-manager-modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2><i class="fa-solid fa-layer-group" aria-hidden="true"></i> Series 管理器</h2>
+                        <p class="series-manager-subtitle">選擇一個 DICOM Series 進入檢視與分析</p>
+                    </div>
+                    <button class="modal-close" id="closeSeriesManagerBtn" aria-label="關閉 Series 管理器"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body"><section class="sidebar-section sidebar-load-section" aria-labelledby="sidebarLoadHeading">
+                        <div class="sidebar-section-heading" id="sidebarLoadHeading">
+                            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+                            <span>載入資料</span>
+                        </div>
+                        <div class="append-mode-container">
+                            <input type="checkbox" id="sidebarAppendModeToggle">
+                            <label for="sidebarAppendModeToggle">累加載入模式</label>
+                        </div>
+                        <div class="sidebar-load-actions">
+                            <button id="sidebarSelectFolderBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> 資料夾</button>
+                            <button id="sidebarSelectFilesBtn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-file-medical" aria-hidden="true"></i> 檔案</button>
+                        </div>
+                    </section>
+                    <div class="series-manager-toolbar">
+                        <div id="seriesImportSummary" class="series-import-summary"></div>
+                        <input id="seriesFilterInput" type="search" placeholder="搜尋 Series Description、kVp、層厚…" aria-label="搜尋 Series">
+                    </div>
+                    <div id="seriesList" class="series-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Help Modal -->
+        <div id="helpModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                        <h2><i class="fa-regular fa-circle-question" aria-hidden="true"></i> 使用說明</h2>
+                    <button class="modal-close" id="closeHelpBtn" aria-label="關閉使用說明"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body">
+                    <h3>快速開始</h3>
+                    <ol class="help-steps">
+                        <li>載入資料夾或 DICOM 檔案。</li>
+                        <li>按頂部「Series」，再按目標來源的「開啟 Series」。</li>
+                        <li>在影像空白處點擊以新增 ROI。</li>
+                        <li>在下方「分析條件」選擇範圍與切片規則。</li>
+                        <li>按「逐 Series 明細」或「處理待確認項目」，檢查位置及略過原因。</li>
+                        <li>按「開始分析」。</li>
+                        <li>檢查完成狀態與失敗明細。</li>
+                        <li>按底部「匯出 CSV」，確認欄位後再匯出。</li>
+                    </ol>
+                    <details class="analysis-help"><summary>切片規則與 ROI 對位</summary>
+                        <p>「全部切片」不限制位置。「精確位置」要求差距 &lt; 0.001 mm。「最近切片」需自行填入最大距離；兩側等距時，請先選擇。相同位置的重複取像全部保留。</p>
+                        <p>「全部 Series」需要啟用跨 Series ROI。病人座標會檢查幾何資訊，但不是影像配準。固定像素座標直接使用 X／Y／半徑，不代表相同解剖位置。</p>
+                        <p>ROI 圓周超出影像時不能開始分析。請移動 ROI 或縮小半徑。</p>
+                    </details>
+                    <details class="analysis-help"><summary>結果、VMI 與資料保留</summary>
+                        <p>kVp 是管電壓，不是 VMI keV。已驗證 GE creator 的 VMI 能量來自 (0053,1075)；(0053,1066) 為顯示註記。缺少能量標籤時，CSV 保留空白。</p>
+                        <p>修改 ROI、影像來源或分析條件後，舊結果失效。取消不保留可匯出的部分結果。「部分完成」可手動匯出成功資料，請檢查失敗明細。</p>
+                        <p>資料在瀏覽器內處理。程式不儲存影像、ROI 或分析結果。重新整理或關閉頁面後需重新設定。下載的 CSV 可能包含姓名與 ID，分享前請確認欄位。</p>
+                        <p>批次線段剖面只處理目前 Series，並沿用「分析條件」的切片規則。</p>
+                    </details>
+                    <details class="analysis-help"><summary>布局與影像顯示</summary>
+                        <p>上方顯示影像，下方同時顯示 ROI 清單與分析條件。拖曳中間分隔線可調整高度；聚焦分隔線後可按上下方向鍵，按 Home 或「重設布局」回復預設高度。</p>
+                        <p>影像預設符合畫布。手動縮放或平移後，按「符合畫布」恢復。點倍率按鈕回到 100%。這些操作只改變顯示，不改 ROI 座標或取樣結果。</p>
+                        <p>「影像設定」保留窗位預設、旋轉、格線及 DICOM 標籤。ROI 對位方式在「進階與對位」中。較窄或較矮的視窗改用捲動布局。</p>
+                    </details>
+                    <p><a href="https://github.com/L49527/DICOM-ROI-Analyzer#readme" target="_blank" rel="noopener">完整使用說明與修改紀錄（README）</a></p>
+                        <h3><i class="fa-solid fa-computer-mouse" aria-hidden="true"></i> 滑鼠操作</h3>
+                    <table class="help-table">
+                        <tbody><tr>
+                            <td><strong>左鍵點擊</strong></td>
+                            <td>點空白處新增；點 ROI 選取；拖曳選取的 ROI 可移動</td>
+                        </tr>
+                        <tr>
+                            <td><strong>右鍵拖曳</strong></td>
+                            <td>調整 Window Width / Level</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Space + 左鍵拖曳</strong></td>
+                            <td>平移影像 (放大時使用)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>中鍵拖曳</strong></td>
+                            <td>平移影像 (放大時使用)</td>
+                        </tr>
+                    </tbody></table>
+
+                        <h3><i class="fa-solid fa-keyboard" aria-hidden="true"></i> 鍵盤快捷鍵</h3>
+                    <table class="help-table">
+                        <tbody><tr>
+                            <td><kbd>A</kbd> / <kbd>←</kbd></td>
+                            <td>上一張影像</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>D</kbd> / <kbd>→</kbd></td>
+                            <td>下一張影像</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>F</kbd></td>
+                            <td>切換全螢幕模式</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Q</kbd> / <kbd>E</kbd></td>
+                            <td>旋轉 −90° / +90°</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>R</kbd></td>
+                            <td>重設 Window Width / Level</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Space</kbd> + 拖曳</td>
+                            <td>平移影像 (Pan)</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Backspace</kbd></td>
+                            <td>刪除選取 ROI；未選取時刪除最後一個</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Ctrl</kbd> / <kbd>Cmd</kbd>+<kbd>Z</kbd></td>
+                            <td>刪除最後新增的 ROI；不是通用復原</td>
+                        </tr>
+                        <tr>
+                            <td><kbd>Delete</kbd></td>
+                            <td>清除全部 ROI</td>
+                        </tr>
+                    </tbody></table>
+
+                        <h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> 品管格線與中心</h3>
+                    <ul>
+                        <li><strong>顯示品管格線</strong>：在「影像設定」開啟，間距以像素計。</li>
+                        <li><strong>固定目前中心</strong>：鎖定後平移不會移動影像中心。</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tag Selection Modal -->
+        <div id="tagModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2><i class="fa-solid fa-file-csv" aria-hidden="true"></i> 選擇匯出欄位</h2>
+                    <button class="modal-close" id="closeTagBtn" aria-label="關閉匯出欄位"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+            <div class="modal-body">
+                <div class="tag-preset-actions" aria-label="CSV 欄位預設">
+                    <span class="tag-preset-label">CSV 欄位預設</span>
+                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="ct">CT</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="xray">X 光</button>
+                    <span id="tagPresetHint" class="tag-preset-hint"></span>
+                </div>
+                <div id="tagPrivacyWarning" class="tag-privacy-warning">
+                    <strong><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> 身分資料提醒</strong>
+                    <span>PatientName 與 PatientID 預設勾選；上傳或分享 CSV 前請確認是否應移除。</span>
+                    <button id="removeIdentityTags" type="button" class="btn btn-sm btn-secondary">移除身分欄位</button>
+                </div>
+                <section class="fixed-export-fields" aria-labelledby="fixedExportFieldsTitle">
+                    <h3 id="fixedExportFieldsTitle">固定輸出欄位</h3>
+                    <p class="hint">這些欄位依目前資料與切片規則保留，不可取消；全空欄位不會顯示或輸出。</p>
+                    <div id="fixedExportFieldList" class="fixed-export-field-list"></div>
+                </section>
+                <div class="tag-actions">
+                    <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
+                    <button id="deselectAllTags" class="btn btn-sm btn-secondary">只留必備</button>
+                    </div>
+                    <div id="tagList" class="tag-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelExportBtn" class="btn btn-secondary">取消</button>
+                    <button id="confirmExportBtn" class="btn btn-success"><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出 CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Display Tag Selection Modal -->
+        <div id="displayTagModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2><i class="fa-solid fa-tags" aria-hidden="true"></i> 選擇要顯示的標籤</h2>
+                    <button class="modal-close" id="closeDisplayTagBtn" aria-label="關閉顯示標籤"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="tag-actions">
+                        <button id="selectAllDisplayTags" class="btn btn-sm btn-secondary">全選</button>
+                        <button id="deselectAllDisplayTags" class="btn btn-sm btn-secondary">全不選</button>
+                    </div>
+                    <div id="displayTagList" class="tag-list"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelDisplayTagBtn" class="btn btn-secondary">取消</button>
+                    <button id="confirmDisplayTagBtn" class="btn btn-primary"><i class="fa-solid fa-check" aria-hidden="true"></i> 確認</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw DICOM Header Modal -->
+        <div id="rawHeaderModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large" style="width: 80%; max-width: 1000px; height: 80vh; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h2><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> 完整 DICOM 標頭</h2>
+                    <button class="modal-close" id="closeRawHeaderBtn" aria-label="關閉 DICOM 標頭"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+                    <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
+                        <input type="text" id="rawHeaderSearch" class="form-select" placeholder="搜尋標籤名稱、Tag ID 或數值…" aria-label="搜尋 DICOM 標頭">
+                    </div>
+                    <div style="flex: 1; overflow-y: auto; padding: 0 16px 16px;">
+                        <table class="help-table" style="width: 100%; margin-top: 0;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 20%; text-align: left;">Tag</th>
+                                    <th style="width: 35%; text-align: left;">Name</th>
+                                    <th style="width: 10%; text-align: left;">VR</th>
+                                    <th style="width: 35%; text-align: left;">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rawHeaderTableBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Profile Detail Modal / 線段讀值詳細分析彈窗 -->
+        <div id="lineDetailModal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-large" style="width: 85%; max-width: 900px; height: 85vh; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h2><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 線段剖面詳細數據</h2>
+                    <button class="modal-close" id="closeLineDetailBtn" aria-label="關閉線段剖面"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                </div>
+                <div class="modal-body" style="flex: 1; display: flex; flex-direction: row; gap: 16px; overflow: hidden; padding: 16px;">
+                    <!-- Left: Large Chart / 左側：大型剖面圖 -->
+                    <div style="flex: 2; display: flex; flex-direction: column; gap: 12px; min-width: 0;">
+                        <div style="flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; position: relative;">
+                            <canvas id="largeProfileCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
+                        </div>
+                        <div class="chart-style-controls" style="display: flex; gap: var(--spacing-md); align-items: center; background: var(--bg-tertiary); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">
+                                <input type="checkbox" id="academicStyleToggle" checked="" style="cursor: pointer; width: 15px; height: 15px;"> 學術期刊格式
+                            </label>
+                            <div style="flex-grow: 1;"></div>
+                            <button id="downloadAcademicBtn" class="btn btn-primary btn-sm" style="margin: 0; padding: 6px 12px;">
+                                <i class="fa-solid fa-image" aria-hidden="true"></i> 匯出圖表 PNG
+                            </button>
+                        </div>
+                        <div class="line-summary-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">
+                            <div class="control-card" style="padding: 10px; margin: 0;">
+                                <strong>起點 (S)：</strong> <span id="modalLineStart">--</span><br>
+                                <strong>終點 (E)：</strong> <span id="modalLineEnd">--</span>
+                            </div>
+                            <div class="control-card" style="padding: 10px; margin: 0;">
+                                <strong>線段長度：</strong> <span id="modalLineLength">--</span><br>
+                                <strong>統計：</strong> Max: <span id="modalLineMax">--</span> | Min: <span id="modalLineMin">--</span> | Mean: <span id="modalLineMean">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Right: Data Table / 右側：數據列表 -->
+                    <div style="flex: 1.2; display: flex; flex-direction: column; border-left: 1px solid var(--border-color); padding-left: 16px; height: 100%; overflow: hidden;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <h3 style="margin: 0; font-size: 0.95rem; color: var(--accent-primary);">數據清單</h3>
+                            <button id="exportLineCsvBtn" class="btn btn-success btn-sm"><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出 CSV</button>
+                        </div>
+                        <div style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary);">
+                            <table class="help-table" style="width: 100%; margin-top: 0; font-size: 0.8rem;">
+                                <thead>
+                                    <tr style="position: sticky; top: 0; background: var(--bg-secondary); z-index: 10;">
+                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">Index</th>
+                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">距離</th>
+                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">讀值</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lineDataTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="loading-spinner"></div>
+            <p id="loadingText">載入中...</p>
+        </div>
+    <dialog id="workViewDialog" class="work-dialog" aria-labelledby="workViewDialogTitle"><header class="work-dialog-heading"><h2 id="workViewDialogTitle">影像設定</h2><button type="button" class="btn btn-ghost" data-close-dialog="" aria-label="關閉影像設定"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></header><div class="work-dialog-body"><div class="toolbar-group toolbar-presets-group">
+                            <span class="toolbar-label">常用窗位</span>
+                            <div id="ctPresetsContainer" class="preset-buttons toolbar-presets" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));">
+                                <button id="presetLungBtn" class="btn btn-secondary btn-sm" title="Lung (W:1500 L:-600)"><i class="fa-solid fa-lungs" aria-hidden="true"></i><span>肺部</span></button>
+                                <button id="presetBrainBtn" class="btn btn-secondary btn-sm" title="Brain (W:80 L:40)"><i class="fa-solid fa-brain" aria-hidden="true"></i><span>腦部</span></button>
+                                <button id="presetBoneBtn" class="btn btn-secondary btn-sm" title="Bone (W:2000 L:300)"><i class="fa-solid fa-bone" aria-hidden="true"></i><span>骨骼</span></button>
+                                <button id="presetAbdBtn" class="btn btn-secondary btn-sm" title="Abdomen (W:400 L:50)"><i class="fa-solid fa-person" aria-hidden="true"></i><span>腹部</span></button>
+                            </div>
+                        </div><section id="inspector-panel-view" class="inspector-panel-content" data-inspector-panel="view">
                             <div class="control-card">
                                 <h3><i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i> 放大倍率</h3>
                                 <div class="control-group">
                                     <label for="zoomSlider">縮放比例</label>
                                     <div class="zoom-control">
-                                        <input type="range" id="zoomSlider" min="25" max="400" value="100" step="25">
+                                        <input type="range" id="zoomSlider" min="1" max="400" value="100" step="1">
                                         <span id="zoomValue">100%</span>
                                     </div>
                                 </div>
@@ -272,10 +650,10 @@
                                             <span>px</span>
                                         </div>
                                         <div class="preset-buttons mt-2" id="gridSpacingPresets">
-                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=20; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">20px</button>
-                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=50; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">50px</button>
-                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=100; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">100px</button>
-                                            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('gridSpacing').value=200; document.getElementById('gridSpacing').dispatchEvent(new Event('input'))">200px</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" data-grid-spacing="20">20px</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" data-grid-spacing="50">50px</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" data-grid-spacing="100">100px</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" data-grid-spacing="200">200px</button>
                                         </div>
                                     </div>
                                 </div>
@@ -289,427 +667,7 @@
                                 <button id="displayTagBtn" class="btn btn-primary btn-block btn-sm"><i class="fa-solid fa-tags" aria-hidden="true"></i> 設定顯示標籤</button>
                                 <div id="displayTagPreview" class="display-tag-preview"></div>
                             </div>
-                        </section>
-
-                        <section id="inspector-panel-measure" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabMeasure" data-inspector-panel="measure">
-                            <div class="control-card measurement-card">
-                                <h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> ROI／線段工具</h3>
-                                <div class="tool-mode-summary"><span>目前模式</span><strong id="toolModeSummary">ROI</strong></div>
-
-                                <div id="roiSettingsSection">
-                                    <div class="control-group">
-                                        <label for="roiRadius">ROI 半徑 (像素)</label>
-                                        <div class="input-with-unit">
-                                            <input type="number" id="roiRadius" value="25" min="5" max="200">
-                                            <span>px</span>
-                                        </div>
-                                        <div id="roiPhysicalInfo" class="hint"></div>
-                                    </div>
-                                    <div class="control-group">
-                                        <label for="roiArea">ROI 面積設定</label>
-                                        <div class="input-with-unit">
-                                            <input type="number" id="roiArea" value="" min="1" step="1">
-                                            <span>mm²</span>
-                                        </div>
-                                        <div class="hint">輸入面積後自動換算半徑（需 Pixel Spacing）</div>
-                                    </div>
-                                    <div class="control-group checkbox-group">
-                                        <input type="checkbox" id="crossSeriesRoiToggle" class="checkbox-lg" checked>
-                                        <label for="crossSeriesRoiToggle" class="checkbox-label">啟用跨 Series ROI</label>
-                                    </div>
-                                    <div class="control-group">
-                                        <label for="crossSeriesRoiMode">ROI 對位方式</label>
-                                        <select id="crossSeriesRoiMode">
-                                            <option value="patient">病人座標（解剖位置）</option>
-                                            <option value="pixel">固定像素座標（跨 Patient）</option>
-                                        </select>
-                                        <p class="hint">固定像素座標會直接套用 ROI 的 X／Y／半徑，適合固定矩陣或跨 Patient protocol 比較；不代表相同解剖位置。</p>
-                                    </div>
-                                    <div id="crossSeriesRoiStatus" class="hint">切換 Series 時依 Frame of Reference 與 DICOM 幾何位置對齊</div>
-                                    <div class="control-group">
-                                        <label>已放置 ROI</label>
-                                        <div class="roi-count-display"><span id="roiCount">0</span> 個</div>
-                                    </div>
-                                    <div id="roiListContainer" class="roi-list-container"></div>
-                                    <button id="deleteSelectedRoiBtn" class="btn btn-secondary btn-sm btn-block" disabled>刪除選取 ROI</button>
-                                    <div class="roi-buttons">
-                                        <button id="deleteLastRoiBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> 刪除上一個 <span class="text-xs">(Ctrl+Z)</span></button>
-                                        <button id="clearAllRoiBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除全部 <span class="text-xs">(Del)</span></button>
-                                    </div>
-                                    <p class="hint">點空白處新增；點 ROI 選取，再拖曳或修改 X／Y。重疊的 ROI 可從清單選取。Backspace 刪除選取項目。</p>
-                                </div>
-
-                                <div id="lineSettingsSection" class="hidden">
-                                    <div class="control-group">
-                                        <label>起點 / Start (S)</label>
-                                        <div class="position-display"><span>X: <strong id="lineStartX">--</strong></span><span>Y: <strong id="lineStartY">--</strong></span></div>
-                                    </div>
-                                    <div class="control-group">
-                                        <label>終點 / End (E)</label>
-                                        <div class="position-display"><span>X: <strong id="lineEndX">--</strong></span><span>Y: <strong id="lineEndY">--</strong></span></div>
-                                    </div>
-                                    <div class="control-group">
-                                        <label>線段長度 / Length</label>
-                                        <div id="lineLengthDisplay" class="measurement-value">-- px</div>
-                                    </div>
-                                    <div class="control-group" id="multiLineContainer">
-                                        <label class="subsection-label"><i class="fa-solid fa-route" aria-hidden="true"></i> 多線段管理</label>
-                                        <select id="activeLineSelect"><option value="">-- 無線段 / No Line --</option></select>
-                                        <select id="duplicateDirectionSelect"><option value="left">左側法向 / Left Normal</option><option value="right">右側法向 / Right Normal</option></select>
-                                        <label for="duplicateDistanceInput" class="compact-label">複製距離 / Copy Distance</label>
-                                        <div class="input-with-unit"><input type="number" id="duplicateDistanceInput" value="30" min="1" step="1"><span>px</span></div>
-                                        <label class="checkbox-label line-display-toggle"><input id="showAllLinesToggle" type="checkbox" checked> 顯示全部線段</label>
-                                        <div class="roi-buttons line-actions">
-                                            <button id="duplicateLineBtn" class="btn btn-secondary btn-sm" disabled title="平行偏移複製當前選取的線段"><i class="fa-solid fa-arrows-left-right" aria-hidden="true"></i> 偏移</button>
-                                            <button id="cloneLineBtn" class="btn btn-secondary btn-sm" disabled title="原地複製當前選取的線段"><i class="fa-regular fa-copy" aria-hidden="true"></i> 複製</button>
-                                            <button id="deleteLineBtn" class="btn btn-secondary btn-sm" disabled title="刪除當前選取的線段"><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 刪除</button>
-                                        </div>
-                                    </div>
-                                    <div class="control-group">
-                                        <label>即時剖面圖 / Real-time Profile</label>
-                                        <canvas id="lineProfileCanvas" width="280" height="150"></canvas>
-                                    </div>
-                                    <div class="roi-buttons">
-                                        <button id="clearLineBtn" class="btn btn-secondary btn-sm" disabled><i class="fa-regular fa-trash-can" aria-hidden="true"></i> 清除線段</button>
-                                        <button id="openLineDetailBtn" class="btn btn-primary btn-sm" disabled><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 完整數據</button>
-                                    </div>
-                                    <div class="roi-buttons mt-1"><button id="batchExportLineBtn" class="btn btn-secondary btn-sm btn-block" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 批次匯出線段剖面</button></div>
-                                    <p class="hint">左鍵拖曳以繪製量測線段</p>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section id="inspector-panel-analysis" class="inspector-panel-content" role="tabpanel" aria-labelledby="inspectorTabAnalysis" data-inspector-panel="analysis" hidden>
-                            <div class="control-card">
-                                <h3><i class="fa-solid fa-chart-column" aria-hidden="true"></i> 分析</h3>
-                                <div id="analysisSettings">
-                                    <div class="control-group">
-                                        <label for="analysisScope">1. 分析範圍</label>
-                                        <select id="analysisScope"><option value="current">目前 Series</option><option value="all">全部 Series</option><option value="single">單張影像</option></select>
-                                    </div>
-                                    <div id="singleImageGroup" class="control-group" hidden>
-                                        <label for="singleImageSelect">選擇影像</label>
-                                        <select id="singleImageSelect"><option value="">-- 選擇影像 --</option></select>
-                                        <p class="hint">切片規則仍會檢查這張影像，不會自動替換。</p>
-                                    </div>
-                                    <div class="control-group">
-                                        <label for="sliceSelectionMode">2. 切片規則</label>
-                                        <select id="sliceSelectionMode"><option value="all">全部切片</option><option value="exact">精確位置</option><option value="nearest">最近切片</option></select>
-                                    </div>
-                                    <div id="sliceLocationFields" hidden>
-                                        <div class="control-group">
-                                            <label for="sliceLocationFilter">目標 Slice Location（mm）</label>
-                                            <input type="number" id="sliceLocationFilter" step="any" placeholder="例如：0" aria-describedby="sliceRuleHint">
-                                        </div>
-                                        <div id="maxDistanceGroup" class="control-group" hidden>
-                                            <label for="maxSliceDistance">最大距離（mm）</label>
-                                            <input type="number" id="maxSliceDistance" min="0" step="any" placeholder="請自行設定" aria-describedby="sliceRuleHint">
-                                        </div>
-                                        <p id="sliceRuleHint" class="hint">精確位置：差距 &lt; 0.001 mm。最近切片：只取距離上限內的最近位置；等距時需選擇。</p>
-                                    </div>
-                                    <label id="tieOptions" class="checkbox-label" hidden><input type="checkbox" id="applyTieToSimilar"> 將選擇套用至候選位置相同的 Series</label>
-                                </div>
-                                <h4 class="subsection-label">3. 確認預覽</h4>
-                                <p id="previewCounts" class="analysis-counts" aria-live="polite"></p>
-                                <p id="analysisValidation" class="analysis-validation" role="status"></p>
-                                <div id="analysisPreview" class="analysis-preview"></div>
-                                <details class="analysis-help"><summary>如何確認分析條件？</summary><p>查看每個 Series 的張數、實際位置、偏差與未納入原因。相同位置的重複取像會全部保留。ROI 圓周超出影像時，請先移動或縮小 ROI。</p><p>病人座標是平面投影，不是影像配準；固定像素座標也不保證相同解剖位置。分析前請檢查影像。</p></details>
-                                <div class="analysis-actions">
-                                    <button id="analyzeBtn" class="btn btn-primary" disabled>開始分析</button>
-                                    <button id="cancelAnalysisBtn" class="btn btn-secondary" disabled>取消</button>
-                                </div>
-                                <div id="analysisProgress" class="progress-container hidden"><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><span id="progressText">0%</span></div>
-                                <div id="analysisStatus" class="cross-series-summary" role="status" aria-live="polite">設定 ROI 與分析條件後，確認預覽再開始。</div>
-                                <details id="analysisDetails" hidden><summary>略過與失敗明細</summary><ul id="analysisRunDetails" class="analysis-run-details"></ul></details>
-                                <details class="analysis-result-preview"><summary>結果預覽</summary><div id="analysisResultTable"></div></details>
-                                <button id="exportBtn" class="btn btn-success btn-block" disabled><i class="fa-solid fa-file-export" aria-hidden="true"></i> 選擇欄位並匯出 CSV</button>
-                                <p class="hint">修改 ROI、來源或切片規則後，請重新分析。取消的結果不能匯出。</p>
-                            </div>
-                        </section>
-                    </div>
-                </aside>
-            </div>
-        </main>
-
-        <!-- Series Manager Modal -->
-        <div id="seriesManagerModal" class="modal hidden">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content modal-large series-manager-modal-content">
-                <div class="modal-header">
-                    <div>
-                        <h2><i class="fa-solid fa-layer-group" aria-hidden="true"></i> Series 管理器</h2>
-                        <p class="series-manager-subtitle">選擇一個 DICOM Series 進入檢視與分析</p>
-                    </div>
-                    <button class="modal-close" id="closeSeriesManagerBtn" aria-label="關閉 Series 管理器">✕</button>
-                </div>
-                <div class="modal-body">
-                    <div class="series-manager-toolbar">
-                        <div id="seriesImportSummary" class="series-import-summary"></div>
-                        <input id="seriesFilterInput" type="search" placeholder="搜尋 Series Description、kVp、層厚…" aria-label="搜尋 Series">
-                    </div>
-                    <div id="seriesList" class="series-list"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Help Modal -->
-        <div id="helpModal" class="modal hidden">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                        <h2><i class="fa-regular fa-circle-question" aria-hidden="true"></i> 使用說明</h2>
-                    <button class="modal-close" id="closeHelpBtn">✕</button>
-                </div>
-                <div class="modal-body">
-                    <h3>快速開始</h3>
-                    <ol class="help-steps">
-                        <li>載入資料夾或 DICOM 檔案。</li>
-                        <li>按頂部「Series」，再按目標來源的「開啟 Series」。</li>
-                        <li>在影像空白處點擊以新增 ROI。</li>
-                        <li>在下方「分析條件」選擇範圍與切片規則。</li>
-                        <li>按「逐 Series 明細」或「處理待確認項目」，檢查位置及略過原因。</li>
-                        <li>按「開始分析」。</li>
-                        <li>檢查完成狀態與失敗明細。</li>
-                        <li>按底部「匯出 CSV」，確認欄位後再匯出。</li>
-                    </ol>
-                    <details class="analysis-help"><summary>切片規則與 ROI 對位</summary>
-                        <p>「全部切片」不限制位置。「精確位置」要求差距 &lt; 0.001 mm。「最近切片」需自行填入最大距離；兩側等距時，請先選擇。相同位置的重複取像全部保留。</p>
-                        <p>「全部 Series」需要啟用跨 Series ROI。病人座標會檢查幾何資訊，但不是影像配準。固定像素座標直接使用 X／Y／半徑，不代表相同解剖位置。</p>
-                        <p>ROI 圓周超出影像時不能開始分析。請移動 ROI 或縮小半徑。</p>
-                    </details>
-                    <details class="analysis-help"><summary>結果、VMI 與資料保留</summary>
-                        <p>kVp 是管電壓，不是 VMI keV。已驗證 GE creator 的 VMI 能量來自 (0053,1075)；(0053,1066) 為顯示註記。缺少能量標籤時，CSV 保留空白。</p>
-                        <p>修改 ROI、影像來源或分析條件後，舊結果失效。取消不保留可匯出的部分結果。「部分完成」可手動匯出成功資料，請檢查失敗明細。</p>
-                        <p>資料在瀏覽器內處理。程式不儲存影像、ROI 或分析結果。重新整理或關閉頁面後需重新設定。下載的 CSV 可能包含姓名與 ID，分享前請確認欄位。</p>
-                        <p>批次線段剖面只處理目前 Series，並沿用「分析條件」的切片規則。</p>
-                    </details>
-                    <details class="analysis-help"><summary>布局與影像顯示</summary>
-                        <p>上方顯示影像，下方同時顯示 ROI 清單與分析條件。拖曳中間分隔線可調整高度；聚焦分隔線後可按上下方向鍵，按 Home 或「重設布局」回復預設高度。</p>
-                        <p>影像預設符合畫布。手動縮放或平移後，按「符合畫布」恢復。點倍率按鈕回到 100%。這些操作只改變顯示，不改 ROI 座標或取樣結果。</p>
-                        <p>「影像設定」保留窗位預設、旋轉、格線及 DICOM 標籤。ROI 對位方式在「進階與對位」中。較窄或較矮的視窗改用捲動布局。</p>
-                    </details>
-                    <p><a href="README.md" target="_blank" rel="noopener">完整使用說明與修改紀錄（README）</a></p>
-                        <h3><i class="fa-solid fa-computer-mouse" aria-hidden="true"></i> 滑鼠操作</h3>
-                    <table class="help-table">
-                        <tr>
-                            <td><strong>左鍵點擊</strong></td>
-                            <td>點空白處新增；點 ROI 選取；拖曳選取的 ROI 可移動</td>
-                        </tr>
-                        <tr>
-                            <td><strong>右鍵拖曳</strong></td>
-                            <td>調整 Window Width / Level</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Space + 左鍵拖曳</strong></td>
-                            <td>平移影像 (放大時使用)</td>
-                        </tr>
-                        <tr>
-                            <td><strong>中鍵拖曳</strong></td>
-                            <td>平移影像 (放大時使用)</td>
-                        </tr>
-                    </table>
-
-                        <h3><i class="fa-solid fa-keyboard" aria-hidden="true"></i> 鍵盤快捷鍵</h3>
-                    <table class="help-table">
-                        <tr>
-                            <td><kbd>A</kbd> / <kbd>←</kbd></td>
-                            <td>上一張影像</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>D</kbd> / <kbd>→</kbd></td>
-                            <td>下一張影像</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>F</kbd></td>
-                            <td>切換全螢幕模式</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>R</kbd></td>
-                            <td>重設 Window Width / Level</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>Space</kbd> + 拖曳</td>
-                            <td>平移影像 (Pan)</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>Backspace</kbd></td>
-                            <td>刪除選取 ROI；未選取時刪除最後一個</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>Ctrl</kbd> / <kbd>Cmd</kbd>+<kbd>Z</kbd></td>
-                            <td>刪除最後新增的 ROI；不是通用復原</td>
-                        </tr>
-                        <tr>
-                            <td><kbd>Delete</kbd></td>
-                            <td>清除全部 ROI</td>
-                        </tr>
-                    </table>
-
-                        <h3><i class="fa-solid fa-crosshairs" aria-hidden="true"></i> 中心十字 <span class="label-secondary">Crosshair</span></h3>
-                    <ul>
-                        <li><strong>隨影像移動</strong>：十字固定在影像中心，隨縮放與旋轉同步變化。</li>
-                        <li><strong>固定在畫面上</strong>：十字固定在視窗中央，影像可在十字後方移動。</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tag Selection Modal -->
-        <div id="tagModal" class="modal hidden">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content modal-large">
-                <div class="modal-header">
-                    <h2>✅ 選擇輸出標籤</h2>
-                    <button class="modal-close" id="closeTagBtn">✕</button>
-                </div>
-            <div class="modal-body">
-                <div class="tag-preset-actions" aria-label="CSV 欄位預設">
-                    <span class="tag-preset-label">CSV 欄位預設</span>
-                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="ct">CT</button>
-                    <button type="button" class="btn btn-sm btn-secondary" data-export-preset="xray">X 光</button>
-                    <span id="tagPresetHint" class="tag-preset-hint"></span>
-                </div>
-                <div id="tagPrivacyWarning" class="tag-privacy-warning">
-                    <strong>⚠️ 身分資料提醒</strong>
-                    <span>PatientName 與 PatientID 預設勾選；上傳或分享 CSV 前請確認是否應移除。</span>
-                    <button id="removeIdentityTags" type="button" class="btn btn-sm btn-secondary">移除身分欄位</button>
-                </div>
-                <section class="fixed-export-fields" aria-labelledby="fixedExportFieldsTitle">
-                    <h3 id="fixedExportFieldsTitle">固定輸出欄位</h3>
-                    <p class="hint">這些欄位依目前資料與切片規則保留，不可取消；全空欄位不會顯示或輸出。</p>
-                    <div id="fixedExportFieldList" class="fixed-export-field-list"></div>
-                </section>
-                <div class="tag-actions">
-                    <button id="selectAllTags" class="btn btn-sm btn-secondary">全選</button>
-                    <button id="deselectAllTags" class="btn btn-sm btn-secondary">只留必備</button>
-                    </div>
-                    <div id="tagList" class="tag-list"></div>
-                </div>
-                <div class="modal-footer">
-                    <button id="cancelExportBtn" class="btn btn-secondary">取消</button>
-                    <button id="confirmExportBtn" class="btn btn-success">📥 匯出 CSV</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Display Tag Selection Modal -->
-        <div id="displayTagModal" class="modal hidden">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content modal-large">
-                <div class="modal-header">
-                    <h2>📋 選擇要顯示的標籤</h2>
-                    <button class="modal-close" id="closeDisplayTagBtn">✕</button>
-                </div>
-                <div class="modal-body">
-                    <div class="tag-actions">
-                        <button id="selectAllDisplayTags" class="btn btn-sm btn-secondary">全選</button>
-                        <button id="deselectAllDisplayTags" class="btn btn-sm btn-secondary">全不選</button>
-                    </div>
-                    <div id="displayTagList" class="tag-list"></div>
-                </div>
-                <div class="modal-footer">
-                    <button id="cancelDisplayTagBtn" class="btn btn-secondary">取消</button>
-                    <button id="confirmDisplayTagBtn" class="btn btn-primary">✓ 確認</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Raw DICOM Header Modal -->
-        <div id="rawHeaderModal" class="modal hidden">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content modal-large" style="width: 80%; max-width: 1000px; height: 80vh; display: flex; flex-direction: column;">
-                <div class="modal-header">
-                    <h2>🔍 完整 DICOM 標頭 (Raw Data)</h2>
-                    <button class="modal-close" id="closeRawHeaderBtn">✕</button>
-                </div>
-                <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
-                    <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
-                        <input type="text" id="rawHeaderSearch" class="form-select" placeholder="🔍 搜尋標籤名稱、Tag ID 或數值...">
-                    </div>
-                    <div style="flex: 1; overflow-y: auto; padding: 0 16px 16px;">
-                        <table class="help-table" style="width: 100%; margin-top: 0;">
-                            <thead>
-                                <tr>
-                                    <th style="width: 20%; text-align: left;">Tag</th>
-                                    <th style="width: 35%; text-align: left;">Name</th>
-                                    <th style="width: 10%; text-align: left;">VR</th>
-                                    <th style="width: 35%; text-align: left;">Value</th>
-                                </tr>
-                            </thead>
-                            <tbody id="rawHeaderTableBody">
-                                <!-- Populated dynamically -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Line Profile Detail Modal / 線段讀值詳細分析彈窗 -->
-        <div id="lineDetailModal" class="modal hidden">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content modal-large" style="width: 85%; max-width: 900px; height: 85vh; display: flex; flex-direction: column;">
-                <div class="modal-header">
-                    <h2>📏 Line Profile 線段讀值詳細分析</h2>
-                    <button class="modal-close" id="closeLineDetailBtn">✕</button>
-                </div>
-                <div class="modal-body" style="flex: 1; display: flex; flex-direction: row; gap: 16px; overflow: hidden; padding: 16px;">
-                    <!-- Left: Large Chart / 左側：大型剖面圖 -->
-                    <div style="flex: 2; display: flex; flex-direction: column; gap: 12px; min-width: 0;">
-                        <div style="flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; position: relative;">
-                            <canvas id="largeProfileCanvas" style="width: 100%; height: 100%; display: block;"></canvas>
-                        </div>
-                        <div class="chart-style-controls" style="display: flex; gap: var(--spacing-md); align-items: center; background: var(--bg-tertiary); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; color: var(--text-primary);">
-                                <input type="checkbox" id="academicStyleToggle" checked style="cursor: pointer; width: 15px; height: 15px;"> 🎓 學術期刊格式 (Academic Style)
-                            </label>
-                            <div style="flex-grow: 1;"></div>
-                            <button id="downloadAcademicBtn" class="btn btn-primary btn-sm" style="margin: 0; padding: 6px 12px;">
-                                📷 匯出學術圖表 (PNG)
-                            </button>
-                        </div>
-                        <div class="line-summary-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">
-                            <div class="control-card" style="padding: 10px; margin: 0;">
-                                <strong>起點 / Start (S):</strong> <span id="modalLineStart">--</span><br>
-                                <strong>終點 / End (E):</strong> <span id="modalLineEnd">--</span>
-                            </div>
-                            <div class="control-card" style="padding: 10px; margin: 0;">
-                                <strong>線段長度 / Length:</strong> <span id="modalLineLength">--</span><br>
-                                <strong>統計 / Stats:</strong> Max: <span id="modalLineMax">--</span> | Min: <span id="modalLineMin">--</span> | Mean: <span id="modalLineMean">--</span>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Right: Data Table / 右側：數據列表 -->
-                    <div style="flex: 1.2; display: flex; flex-direction: column; border-left: 1px solid var(--border-color); padding-left: 16px; height: 100%; overflow: hidden;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <h3 style="margin: 0; font-size: 0.95rem; color: var(--accent-primary);">數據清單 (Data Points)</h3>
-                            <button id="exportLineCsvBtn" class="btn btn-success btn-sm">📥 匯出 CSV</button>
-                        </div>
-                        <div style="flex: 1; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary);">
-                            <table class="help-table" style="width: 100%; margin-top: 0; font-size: 0.8rem;">
-                                <thead>
-                                    <tr style="position: sticky; top: 0; background: var(--bg-secondary); z-index: 10;">
-                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">Index</th>
-                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">距離 (Distance)</th>
-                                        <th style="padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border-color);">讀值 (Value)</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="lineDataTableBody">
-                                    <!-- Populated dynamically -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Loading Overlay -->
-        <div id="loadingOverlay" class="loading-overlay hidden">
-            <div class="loading-spinner"></div>
-            <p id="loadingText">載入中...</p>
-        </div>
-    </div>
+                        </section></div></dialog><dialog id="workDetailsDialog" class="work-dialog" aria-labelledby="workDetailsDialogTitle"><header class="work-dialog-heading"><h2 id="workDetailsDialogTitle">分析預覽與結果</h2><button type="button" class="btn btn-ghost" data-close-dialog="" aria-label="關閉分析預覽與結果"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></header><div class="work-dialog-body"><p id="workDetailsSummary" tabindex="-1" role="status"></p><label id="tieOptions" class="checkbox-label" hidden=""><input type="checkbox" id="applyTieToSimilar"> 將選擇套用至候選位置相同的 Series</label><div id="analysisPreview" class="analysis-preview"></div><details class="analysis-help"><summary>如何確認分析條件？</summary><p>查看每個 Series 的張數、實際位置、偏差與未納入原因。相同位置的重複取像會全部保留。ROI 圓周超出影像時，請先移動或縮小 ROI。</p><p>病人座標是平面投影，不是影像配準；固定像素座標也不保證相同解剖位置。分析前請檢查影像。</p></details><details id="analysisDetails" hidden=""><summary>略過與失敗明細</summary><ul id="analysisRunDetails" class="analysis-run-details"></ul></details><details class="analysis-result-preview"><summary>結果預覽</summary><div id="analysisResultTable"></div></details></div></dialog><footer id="workActionBar"><div class="work-run-summary"><strong id="workSummary" aria-live="polite">載入影像以開始</strong><div id="analysisStatus" class="cross-series-summary" role="status" aria-live="polite">先載入 Series，再放置 ROI。</div><div id="analysisProgress" class="progress-container hidden"><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><span id="progressText">0%</span></div></div><div class="work-run-actions"><button id="workReviewBtn" type="button" class="btn btn-secondary btn-sm"><i class="fa-solid fa-list-check" aria-hidden="true"></i> 明細</button><button id="cancelAnalysisBtn" class="btn btn-secondary" disabled="">取消</button><button id="exportBtn" class="btn btn-secondary" disabled="" title="選擇欄位並匯出 CSV"><i class="fa-solid fa-file-export" aria-hidden="true"></i> 匯出 CSV</button><button id="analyzeBtn" class="btn btn-primary" disabled=""><i class="fa-solid fa-play" aria-hidden="true"></i> 開始分析</button></div></footer></div>
 
     <script src="dicomParser.min.js"></script>
     <script src="analysis-core.js"></script>
